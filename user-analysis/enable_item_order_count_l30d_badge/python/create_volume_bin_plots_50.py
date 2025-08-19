@@ -36,17 +36,18 @@ def main():
     df_filtered = df[df['volume_bin'] != 'OVERALL'].copy()
     print(f'Filtered to {len(df_filtered)} rows (excluding OVERALL)')
     
-    # Create pivot tables for plotting - Consumer-level metrics
-    metrics = ['pct_diff_order_rate', 'pct_diff_revenue_per_person']
-    metric_labels = ['Order Rate % Difference vs Control', 'Revenue Per Person % Difference vs Control']
+    # Create pivot tables for plotting - Store-Item level metrics
+    metrics = ['pct_diff_order_count', 'pct_diff_revenue_usd']
+    metric_labels = ['Order Count % Difference vs Control', 'Revenue (USD) % Difference vs Control']
     
-    # Create x-axis positions - simplified bin order with numerical spacing
-    custom_bin_order = ['10', '50', '100', '150', '200', '250', '300', '350', '400', '450', '500', '550', '600', '650', '700', '750', '800', '850', '900', '950', '1000']
+    # Create x-axis positions - extended bin order with numerical spacing
+    custom_bin_order = ['10', '50', '100', '150', '200', '250', '300', '350', '400', '450', '500', '550', '600', '650', '700', '750', '800', '850', '900', '950', '1000', '1000+']
     
     # Filter to only bins that exist in data and preserve order
     unique_bins = [bin_name for bin_name in custom_bin_order if bin_name in df_filtered['volume_bin'].unique()]
     # Use actual numerical values for x-positions to reflect true distances
-    x_positions = [int(bin_name) for bin_name in unique_bins]
+    # Handle '1000+' as position 1050 for visual spacing
+    x_positions = [1050 if bin_name == '1000+' else int(bin_name) for bin_name in unique_bins]
     x_labels = unique_bins
     
     print(f'X-axis bins: {list(x_labels)}')
@@ -55,7 +56,7 @@ def main():
     
     # Create the plots
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
-    fig.suptitle('Consumer-Level Treatment Effects vs Control by Item Volume Bin\n(Consumer Order Rate & Revenue Per Person by Volume Bins) - % Difference vs Control', fontsize=14, fontweight='bold')
+    fig.suptitle('Store-Item Level Treatment Effects vs Control by Item Volume Bin\n(Store-Item Order Count & Revenue by Volume Bins) - % Difference vs Control', fontsize=14, fontweight='bold')
     
     colors = {'icon treatment': '#1f77b4', 'no icon treatment': '#ff7f0e'}
     markers = {'icon treatment': 'o', 'no icon treatment': 's'}
@@ -121,13 +122,13 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     plots_dir = Path(__file__).parent.parent / 'plots'
     plots_dir.mkdir(exist_ok=True)
-    plot_filename = plots_dir / f'consumer_level_volume_bin_plots_{timestamp}.png'
+    plot_filename = plots_dir / f'volume_bin_analysis_plots_50_bins_{timestamp}.png'
     plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
     
     print(f'\n📊 Plots saved to: {plot_filename}')
     
     # Print summary statistics
-    print('\n📈 Consumer-Level Summary Statistics (Item Volume Bins):')
+    print('\n📈 Store-Item Level Summary Statistics (Item Volume Bins):')
     print('=' * 80)
     
     # Print OVERALL statistics first
@@ -135,60 +136,68 @@ def main():
         print('\n🌟 OVERALL Performance (All Bins Combined):')
         for _, row in overall_data.iterrows():
             treatment = row['treatment_arm']
-            order_rate_pct = row["pct_diff_order_rate"] * 100 if row["pct_diff_order_rate"] is not None else 0
-            revenue_per_person_pct = row["pct_diff_revenue_per_person"] * 100 if row["pct_diff_revenue_per_person"] is not None else 0
-            consumers = row.get("treatment_consumers", "N/A")
-            print(f'  {treatment}: Order Rate {order_rate_pct:+.1f}%, Revenue/Person {revenue_per_person_pct:+.1f}% | {consumers} consumers')
+            order_count_pct = row["pct_diff_order_count"] * 100 if row["pct_diff_order_count"] is not None else 0
+            revenue_usd_pct = row["pct_diff_revenue_usd"] * 100 if row["pct_diff_revenue_usd"] is not None else 0
+            print(f'  {treatment}: Order Count {order_count_pct:+.1f}%, Revenue (USD) {revenue_usd_pct:+.1f}%')
     
     # Show all volume bins
-    print('\nConsumer-Level Effects by Volume Bin:')
+    print('\nStore-Item Level Effects by Volume Bin:')
     for bin_name in x_labels:
         bin_data = df_filtered[df_filtered['volume_bin'] == bin_name]
         if not bin_data.empty:
             print(f'\n  Volume Bin {bin_name}:')
             for _, row in bin_data.iterrows():
                 treatment = row['treatment_arm']
-                order_rate_pct = row["pct_diff_order_rate"] * 100 if row["pct_diff_order_rate"] is not None else 0
-                revenue_per_person_pct = row["pct_diff_revenue_per_person"] * 100 if row["pct_diff_revenue_per_person"] is not None else 0
-                consumers = row.get("treatment_consumers", "N/A")
-                print(f'    {treatment}: Order Rate {order_rate_pct:+.1f}%, Revenue/Person {revenue_per_person_pct:+.1f}% | {consumers} consumers')
+                order_count_pct = row["pct_diff_order_count"] * 100 if row["pct_diff_order_count"] is not None else 0
+                revenue_usd_pct = row["pct_diff_revenue_usd"] * 100 if row["pct_diff_revenue_usd"] is not None else 0
+                print(f'    {treatment}: Order Count {order_count_pct:+.1f}%, Revenue (USD) {revenue_usd_pct:+.1f}%')
     
     # Calculate some aggregated stats
-    print(f'\n📊 Aggregated Consumer-Level Statistics:')
+    print(f'\n📊 Aggregated Store-Item Level Statistics:')
     
     for treatment in df_filtered['treatment_arm'].unique():
         treatment_data = df_filtered[df_filtered['treatment_arm'] == treatment]
         
-        # Calculate averages for consumer-level percentage differences
-        avg_order_rate_pct = treatment_data['pct_diff_order_rate'].mean() * 100
-        avg_revenue_per_person_pct = treatment_data['pct_diff_revenue_per_person'].mean() * 100
+        # Calculate averages for store-item level percentage differences
+        avg_order_count_pct = treatment_data['pct_diff_order_count'].mean() * 100
+        avg_revenue_usd_pct = treatment_data['pct_diff_revenue_usd'].mean() * 100
         
         print(f'\n  {treatment}:')
-        print(f'    Average Order Rate % Diff: {avg_order_rate_pct:+.1f}%')
-        print(f'    Average Revenue Per Person % Diff: {avg_revenue_per_person_pct:+.1f}%')
+        print(f'    Average Order Count % Diff: {avg_order_count_pct:+.1f}%')
+        print(f'    Average Revenue (USD) % Diff: {avg_revenue_usd_pct:+.1f}%')
         
         # Find crossover point (where percentage differences become positive)
-        positive_order_rates = treatment_data[treatment_data['pct_diff_order_rate'] > 0]
-        if not positive_order_rates.empty:
-            min_positive_bin = positive_order_rates['volume_bin'].apply(lambda x: int(x)).min()
-            print(f'    First positive order rate impact at bin: {min_positive_bin}')
+        positive_order_counts = treatment_data[treatment_data['pct_diff_order_count'] > 0]
+        if not positive_order_counts.empty:
+            # Handle both numeric and '1000+' bins
+            numeric_bins = positive_order_counts[positive_order_counts['volume_bin'] != '1000+']['volume_bin'].apply(lambda x: int(x))
+            if not numeric_bins.empty:
+                min_positive_bin = numeric_bins.min()
+                print(f'    First positive order count impact at bin: {min_positive_bin}')
+            elif '1000+' in positive_order_counts['volume_bin'].values:
+                print(f'    First positive order count impact at bin: 1000+')
         else:
-            print(f'    No positive order rate impacts found')
+            print(f'    No positive order count impacts found')
             
-        positive_revenue = treatment_data[treatment_data['pct_diff_revenue_per_person'] > 0]
+        positive_revenue = treatment_data[treatment_data['pct_diff_revenue_usd'] > 0]
         if not positive_revenue.empty:
-            min_positive_revenue_bin = positive_revenue['volume_bin'].apply(lambda x: int(x)).min()
-            print(f'    First positive revenue per person impact at bin: {min_positive_revenue_bin}')
+            # Handle both numeric and '1000+' bins
+            numeric_bins = positive_revenue[positive_revenue['volume_bin'] != '1000+']['volume_bin'].apply(lambda x: int(x))
+            if not numeric_bins.empty:
+                min_positive_revenue_bin = numeric_bins.min()
+                print(f'    First positive revenue (USD) impact at bin: {min_positive_revenue_bin}')
+            elif '1000+' in positive_revenue['volume_bin'].values:
+                print(f'    First positive revenue (USD) impact at bin: 1000+')
         else:
-            print(f'    No positive revenue per person impacts found')
+            print(f'    No positive revenue (USD) impacts found')
     
     # Show data range
-    print(f'\nConsumer-Level Analysis Summary:')
+    print(f'\nStore-Item Level Analysis Summary:')
     print(f'  Volume bins: {x_labels[0]} to {x_labels[-1]} ({len(x_labels)} bins)')
     print(f'  Bin sequence: {", ".join(x_labels)}')
-    print(f'  Analysis Level: Consumer-level (order rate & revenue per person)')
-    print(f'  Base Population: All experiment participants exposed to badge items')
-    print(f'  Metrics: (Treatment - Control) / Control for each consumer-level metric')
+    print(f'  Analysis Level: Store-item level (order count & revenue in USD)')
+    print(f'  Base Population: All store-item combinations with badge items in experiment participants\' orders')
+    print(f'  Metrics: (Treatment - Control) / Control for each store-item level metric')
     print(f'  Total data points: {len(df_filtered)} volume bin × treatment combinations')
 
 if __name__ == '__main__':
