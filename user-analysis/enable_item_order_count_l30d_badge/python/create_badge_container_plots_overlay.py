@@ -282,7 +282,9 @@ def main():
     
     # Save the plot
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    plot_filename = f'badge_container_analysis_overlay_{timestamp}.png'
+    plots_dir = Path(__file__).parent.parent / 'plots'
+    plots_dir.mkdir(exist_ok=True)
+    plot_filename = plots_dir / f'badge_container_analysis_overlay_{timestamp}.png'
     plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
     
     print(f'\n📊 Container plots saved to: {plot_filename}')
@@ -397,7 +399,7 @@ def main():
         plt.tight_layout()
         
         # Save the overlay plot
-        overlay_filename = f'badge_overlay_view_items_{timestamp}.png'
+        overlay_filename = plots_dir / f'badge_overlay_view_items_{timestamp}.png'
         plt.savefig(overlay_filename, dpi=300, bbox_inches='tight')
         print(f'📊 Overlay plot saved to: {overlay_filename}')
     else:

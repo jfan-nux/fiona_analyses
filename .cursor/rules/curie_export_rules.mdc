@@ -1,0 +1,1544 @@
+---
+description: when user requests a curie experiment export
+alwaysApply: false
+---
+# Curie Experiment Export Rules
+
+## 🎯 KEY PRINCIPLE: Cursor as Intelligent Interpreter
+
+**Cursor's Primary Role**: Act as an intelligent translator between user's natural language requests and precise technical export commands.
+
+**Users should NEVER need to:**
+- Write export commands
+- Know the difference between dimension_names and dimension_cuts parameters
+- Understand the technical API
+- Specify exact dimension cut names (unless they want to)
+
+**Cursor MUST:**
+- Interpret what the user wants from their business language
+- Query available data to understand options
+- Show users what will be included/excluded in plain language
+- Generate the precise technical command after confirmation
+- Execute the export seamlessly
+
+**Example:**
+```
+User: "I want to see pizza delivery performance"
+Cursor: 
+1. Interprets this means pizza-related metrics and dimensions
+2. Queries available metrics/dimensions
+3. Shows user what will be included
+4. Generates appropriate MCP export tool call
+5. Executes after confirmation
+```
+
+---
+
+## ⚠️ CRITICAL REQUIREMENTS - NEVER VIOLATE
+
+1. **NO ONE-OFF SCRIPTS**: Never create test scripts, analysis scripts, or helper utilities. Use ONLY MCP cursor-analytics tools.
+2. **MCP TOOL USAGE**: All exports must use `mcp_cursor-analytics_export_curie_experiment_to_sheet` MCP tool.
+3. **FORMATTING VALIDATION**: Validation is handled automatically by MCP tools.
+4. **ALWAYS QUERY FRESH DATA**: Use `mcp_cursor-analytics_curie_get_metadata` for EVERY export request - never assume metrics/dimensions from previous exports.
+5. **ALWAYS INCLUDE OVERALL DIMENSION**: The "overall" dimension must ALWAYS be included for all requested metrics, even if user doesn't explicitly mention it. This provides the aggregate view without dimensional breakdowns.
+6. **ALWAYS GET METADATA AND CONFIRM**: For EVERY export request, ALWAYS call `mcp_cursor-analytics_curie_get_metadata` first, display a comprehensive summary of the experiment and planned export details, and get explicit user confirmation before proceeding. NEVER skip this step.
+7. **ALWAYS DISPLAY URLS AS CLICKABLE LINKS**: When displaying Google Sheets URLs or any other URLs, ALWAYS use standard markdown link format `[descriptive text](mdc:URL)` to make them clickable. Never display raw URLs as plain text. Examples:
+   - ✅ CORRECT: `📊 Sheet URL: [Open in Google Sheets](mdc:https:/docs.google.com/spreadsheets/d/...)`
+   - ❌ WRONG: `📊 Sheet URL: https://docs.google.com/spreadsheets/d/...`
+   - ✅ CORRECT: `View results: [Experiment Results Sheet](mdc:https:/docs.google.com/spreadsheets/d/abc123)`
+   - ❌ WRONG: `View results: https://docs.google.com/spreadsheets/d/abc123`
+   - ❌ WRONG: `[Open in Google Sheets](mdc:https:/...)` - Do NOT use mdc: prefix
+8. **ALWAYS SHOW DIMENSION DETAILS**: When displaying metadata, ALWAYS show all available dimensions including single dimensions and cross-dimensional combinations with examples. ALWAYS note that cross-dimensions are included by default when selecting a dimension.
+
+---
+
+## 🎯 PRIMARY RESPONSIBILITIES OF CURSOR AI
+
+### ⚠️ CRITICAL: ALL USER INTERACTIONS MUST BE IN THE CHAT INTERFACE
+**Every interaction with the user MUST be displayed in the chat, including:**
+- Initial prompts for requirements
+- Metadata display and interpretation
+- Confirmation messages
+- Export progress updates
+- Success/failure messages with URLs
+- ANY questions or clarifications
+
+**Console logs are ONLY for debugging - NEVER for user communication!**
+
+### 1. INTERPRET AND PROMPT (IN CHAT)
+**Cursor MUST intelligently interpret user requests and gather requirements IN THE CHAT:**
+- When user says "export experiment X", ALWAYS prompt for metrics, dimensions, and columns IN THE CHAT
+- Ask about email ONLY if no default exists in `credentials/default_share_email.json`
+- Never assume or skip gathering requirements - be thorough
+- ALL prompts must be visible in the chat interface, not console output
+
+### 2. INTELLIGENT INTERPRETATION USING METADATA
+**Cursor MUST actively query and interpret available data EVERY TIME:**
+- **ALWAYS query `mcp_cursor-analytics_curie_get_metadata` for EVERY export request** - even if continuing a previous export
+- Never assume metrics/dimensions from previous exports are still valid
+- Read metric descriptions to understand what each metric measures
+- Match user intent to actual metric names (e.g., "conversion rate" → "store_level_page_conversion")
+- Look for semantic matches when exact names don't exist
+- ALWAYS confirm interpreted requirements with the user before proceeding
+
+### 3. EXECUTE VIA MCP TOOLS
+**Cursor MUST use MCP tools without creating scripts:**
+- Execute exports using MCP cursor-analytics tools
+- NEVER create one-off scripts like `test_export.py` or `check_metrics.py`
+- Use `mcp_cursor-analytics_export_curie_experiment_to_sheet` MCP tool
+- Validation is handled automatically by the MCP tools
+
+---
+
+## 📋 WORKFLOW: User Requests Curie Export
+
+### Step 1: Initial Requirements Gathering (IN CHAT)
+**ALWAYS prompt for ALL of these IN THE CHAT INTERFACE:**
+
+**Example Initial Prompt (MUST BE IN CHAT):**
+```
+To export your Curie experiment results, I need the following information:
+
+1. **Metrics to Export**
+   Which metrics would you like to export? (I can show you available metrics if needed)
+
+2. **Metric Categorization** (REQUIRED)
+   - Primary metrics: Main success metrics for your experiment
+   - Secondary metrics: Supporting metrics to understand impact
+   - Guardrail metrics: Metrics to ensure no negative effects
+   
+3. **Dimensions for Each Metric Category**
+   - "Which dimensions would you like for each metric category?"
+   - **ALWAYS show available dimensions including cross-dimensional options**
+   - **Example format:**
+     ```
+     Available dimensions for this experiment:
+     
+     📊 Single Dimensions:
+     • overall (aggregate baseline - always included)
+     • ent_pizza_biz (3 cuts: Little_Caesar, Pizza_hut, pji)
+     • pizza_transformed (2 cuts: not_transformed, transformed)
+     • is_drive_pizza (2 cuts: TRUE, FALSE)
+     
+     🔄 Cross-Dimensional Analysis Available:
+     • ent_pizza_biz × pizza_transformed (6 combinations)
+       Example: ent_pizza_biz_Little_Caesar x pizza_transformed_transformed
+     • ent_pizza_biz × is_drive_pizza (6 combinations)
+       Example: ent_pizza_biz_pji x is_drive_pizza_TRUE
+     • pizza_transformed × is_drive_pizza (4 combinations)
+       Example: pizza_transformed_transformed x is_drive_pizza_FALSE
+     
+     Note: When you select a dimension, cross-dimensional cuts are included by default.
+     You can exclude cross-dimensions if you prefer single dimension analysis only.
+     ```
+   
+4. **Columns to Include**
+   - "Any columns beyond the 7 defaults?"
+   - Default: metric_name, dimension_cut_name, control_value, treatment_value, relative_impact, p_value, stat_sig
+
+### Step 2: Check Available Data (MANDATORY FOR EVERY EXPORT)
+**⚠️ CRITICAL: Query fresh data EVERY TIME - even for continuation exports!**
+
+```
+# Get metadata - MUST DO THIS FOR EVERY EXPORT REQUEST
+# Use MCP tool to get experiment metadata
+mcp_cursor-analytics_curie_get_metadata(experiment_name="experiment_name")
+# Returns: formatted metadata display string with metrics, dimensions, variants, analyzed_at info, etc.
+```
+
+**MANDATORY METADATA DISPLAY (IN CHAT):**
+The MCP tool returns pre-formatted metadata that should be displayed directly:
+
+```
+📊 EXPERIMENT METADATA: {experiment_name}
+============================================================
+Total rows: {total_rows}
+Unique metrics: {unique_metrics}
+Unique dimensions: {unique_dimensions}
+
+🔀 VARIANT INFORMATION:
+Variants ({variant_count}): {list of variants}
+Control: {control_variant or 'NOT DETECTED - must specify'}
+Treatments ({treatment_count}): {list of treatment variants}
+
+📅 METRICS ANALYZED AT:
+{Use ExperimentSheetsFormatter.get_analyzed_at_range() to extract and display}
+Example: "Metrics analyzed at 2025-06-25 19:40:09"
+        "Metrics analyzed between 2025-06-24 13:30:00 and 2025-06-26 15:45:30"
+
+⚠️ DATA FRESHNESS WARNING:
+If you've updated metrics in Curie after the above timestamp, note that:
+- Source tables are updated every 4 hours by the experimentation team
+- The export tool can only access data from the last update cycle
+- Try again later if you need the most recent changes
+
+📍 AVAILABLE DIMENSIONS:
+============================================================
+📊 Single Dimensions:
+• overall (aggregate baseline - always included)
+{list each dimension with number of cuts}
+• {dimension_name} ({count} cuts: {list of cut values})
+
+🔄 Cross-Dimensional Analysis Available:
+{list cross-dimensional combinations with examples}
+• {dim1} × {dim2} ({count} combinations)
+  Example: {dim1_cut} x {dim2_cut}
+
+⚠️ NOTE: When you select a dimension, cross-dimensional cuts are included by default.
+You can exclude cross-dimensions if you prefer single dimension analysis only.
+
+📋 PLANNED EXPORT:
+============================================================
+Selected Metrics ({count}):
+  - Primary ({count}): {list}
+  - Secondary ({count}): {list}  
+  - Guardrail ({count}): {list}
+
+Dimensions: {dimension details}
+Treatment variants: {which variants will be included}
+Control variant: {which variant is control}
+Export to: Google Sheets
+Share with: {email}
+============================================================
+
+✅ All checks passed. Ready to export.
+🚀 Proceeding with export...
+```
+
+**Example Metadata Display with Dimensions:**
+```
+📊 EXPERIMENT METADATA: drive_pizza_bag_preference_toggle
+============================================================
+Total rows: 2,456
+Unique metrics: 45
+Unique dimensions: 5
+
+🔀 VARIANT INFORMATION:
+Variants (2): control, treatment
+Control: control (auto-detected)
+Treatments (1): treatment
+
+📅 METRICS ANALYZED AT:
+Metrics analyzed between 2025-06-24 13:30:00 and 2025-06-26 15:45:30
+
+📍 AVAILABLE DIMENSIONS:
+============================================================
+📊 Single Dimensions:
+• overall (aggregate baseline - always included)
+• is_drive_pizza (2 cuts: TRUE, FALSE)
+• pizza_platform (3 cuts: little_caesars, ph, pji)
+• small_biz (2 cuts: TRUE, FALSE)
+• pizza_transformed (2 cuts: transformed, not_transformed)
+
+🔄 Cross-Dimensional Analysis Available:
+• is_drive_pizza × pizza_platform (6 combinations)
+  Example: is_drive_pizza_TRUE x pizza_platform_pji
+• is_drive_pizza × small_biz (4 combinations)
+  Example: is_drive_pizza_FALSE x small_biz_TRUE
+• pizza_platform × small_biz (6 combinations)
+  Example: pizza_platform_little_caesars x small_biz_FALSE
+• pizza_platform × pizza_transformed (6 combinations)
+  Example: pizza_platform_pji x pizza_transformed_transformed
+
+⚠️ NOTE: When you select a dimension, cross-dimensional cuts are included by default.
+You can exclude cross-dimensions if you prefer single dimension analysis only.
+```
+
+**Why display metadata every time?**
+- Shows users exactly what data is available including all dimension options
+- Confirms their understanding of the experiment structure
+- Prevents errors from wrong assumptions
+- Provides transparency about what will be exported
+- Shows data freshness so users know if their latest Curie changes are included
+- Shows all cross-dimensional analysis possibilities upfront
+
+**Why query every time?**
+- Metrics may be added or removed between exports
+- Dimension availability can change
+- Metric definitions may be updated
+- Never rely on memory from previous exports
+
+### Step 3: INTELLIGENTLY INTERPRET User Request (MOST CRITICAL STEP)
+**This is Cursor's PRIMARY job - to understand what the user wants and map it to available data:**
+
+**WORKFLOW:**
+1. **Query all available metrics and dimensions** using `mcp_cursor-analytics_curie_get_metadata`
+2. **Read metric descriptions** to understand what each metric measures
+3. **Use semantic matching** to find the best matches for user requests
+4. **Present interpreted results** to the user for confirmation
+
+#### 3.1 Metric Matching
+```python
+# Example: User wants "avg_item_price"
+requested_metric = "avg_item_price"
+
+# Search in metadata
+exact_match = requested_metric in metadata['metrics']
+if not exact_match:
+    # Look for semantic matches
+    for metric, description in metadata['metric_descriptions'].items():
+        if 'average' in description.lower() and 'item' in description.lower() and 'price' in description.lower():
+            # Found "sub_avg_item_price" with description "Average price of items in subtotal"
+            suggested_metric = metric
+            break
+```
+
+**Interpretation Examples:**
+- "avg_item_price" → "sub_avg_item_price" (subtotal version)
+- "revenue" → "variable_profit" or "contribution_profit" (based on description)
+- "conversion rate" → "store_level_page_conversion" (if store context)
+- "items per cart" → "sub_items_per_cart" (subtotal version)
+
+#### 3.2 Dimension Matching
+```python
+# Example: User wants "pizza business dimension"
+# Look for dimensions with:
+# - "pizza" in name
+# - "ent_" prefix (entity/business dimensions)
+# - Related business context
+
+matching_dims = [d for d in metadata['dimensions'] 
+                 if 'pizza' in d.lower() and 'ent_' in d]
+```
+
+**CRITICAL DIMENSION RULE:**
+⚠️ **ALWAYS include "overall" dimension** for ALL metrics, even if not explicitly requested:
+- When user requests specific dimensions (e.g., "ent_pizza_biz"), include BOTH the requested dimension AND "overall"
+- When user requests "overall only", include ONLY "overall"
+- When user doesn't specify dimensions, default to "overall" only
+- The "overall" dimension provides the aggregate baseline that's essential for comparison
+
+**Dimension Patterns:**
+- "ent_" prefix = entity/business dimensions
+- "time_" prefix = temporal dimensions
+- "geo_" prefix = geographic dimensions
+- "overall" = no dimension cut (ALWAYS INCLUDED unless user explicitly says "exclude overall")
+
+#### 3.3 Cross-Dimensional Analysis (CRITICAL)
+**When handling dimensions, ALWAYS consider cross-dimensional cuts:**
+
+**What are Cross-Dimensional Cuts?**
+Cross-dimensional cuts show the intersection of two dimensions, providing deeper insights. For example:
+- Single dimension cut: `is_drive_pizza_TRUE` (shows all pizza orders)
+- Cross-dimensional cut: `is_drive_pizza_TRUE x pizza_platform_pji` (shows only PJI orders that are pizza)
+
+**Real Example from drive_pizza_bag_preference_toggle:**
+```
+Requesting dimension: is_drive_pizza
+Results will include:
+- is_drive_pizza_FALSE (non-pizza orders)
+- is_drive_pizza_TRUE (pizza orders)
+- is_drive_pizza_FALSE x pizza_platform_little_caesars
+- is_drive_pizza_FALSE x pizza_platform_ph
+- is_drive_pizza_FALSE x pizza_platform_pji
+- is_drive_pizza_TRUE x pizza_platform_little_caesars
+- is_drive_pizza_TRUE x pizza_platform_ph
+- is_drive_pizza_TRUE x pizza_platform_pji
+
+This allows analysis like: "How does the treatment effect differ for PJI pizza orders vs PJI non-pizza orders?"
+```
+
+**Automatic Cross-Dimension Inclusion:**
+When a user requests a dimension (e.g., "ent_pizza_biz"), the system should automatically include:
+1. The base dimension cuts (e.g., ent_pizza_biz_Little_Caesar, ent_pizza_biz_Pizza_hut)
+2. Any cross-dimensional cuts involving that dimension (e.g., ent_pizza_biz_Little_Caesar x pizza_transformed_transformed)
+
+**✅ Excluding Cross-Dimensional Cuts:**
+With the new explicit API, you can now exclude cross-dimensional cuts by using `dimension_cuts` parameter:
+- To get only single dimension cuts, list them explicitly in `dimension_cuts`
+- To exclude cross-dimensions, simply don't include cuts containing ' x ' in your list
+- Full control over exactly which cuts are included
+
+**Example - Excluding Cross-Dimensions:**
+```
+User: "Show me pizza business data but no cross-dimensional analysis"
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    primary_metrics=["metric1", "metric2"],
+    dimension_cuts=[
+        "ent_pizza_biz_Little_Caesar",
+        "ent_pizza_biz_Pizza_hut", 
+        "ent_pizza_biz_pji"
+        # No ' x ' cuts included = no cross-dimensions
+    ],
+    use_oauth=True
+)
+```
+
+**✅ NEW CAPABILITY - Explicit Dimension Cut Selection:**
+The codebase now supports explicit filtering by dimension names OR dimension cuts with clear, separate parameters.
+
+**Clean API Design:**
+```python
+# Option 1: Filter by dimension names (gets ALL cuts for these dimensions)
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="drive_pizza_bag_preference_toggle",
+    primary_metrics=["dispatch_pct_equipped"],
+    dimension_names=["is_drive_pizza", "pizza_platform"],  # Gets all cuts for these
+    use_oauth=True
+)
+
+# Option 2: Filter by specific dimension cuts
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="drive_pizza_bag_preference_toggle",
+    primary_metrics=["dispatch_pct_equipped"],
+    dimension_cuts=[
+        "is_drive_pizza_TRUE",
+        "is_drive_pizza_TRUE x pizza_platform_pji",
+        "pizza_platform_pji"
+    ],
+    use_oauth=True
+)
+
+# Option 3: Mix both (gets union of both filters)
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="drive_pizza_bag_preference_toggle",
+    primary_metrics=["dispatch_pct_equipped"],
+    dimension_names=["is_drive_pizza"],  # All is_drive_pizza cuts
+    dimension_cuts=["pizza_platform_pji x small_biz_TRUE"],  # Plus this specific cut
+    use_oauth=True
+)
+```
+
+**No More Guessing:**
+- `dimension_names`: List of dimension names → returns ALL cuts for those dimensions
+- `dimension_cuts`: List of specific cut names → returns ONLY those exact cuts
+- Clear, explicit, predictable behavior
+
+#### 3.4 Interpreting User Requests for Dimension Cuts (CRITICAL)
+**When users request specific dimensional analysis, Cursor MUST:**
+
+1. **Query available dimension cuts** for the requested metrics
+2. **Interpret natural language** to identify which specific cuts the user wants
+3. **Show explicit dimension cuts** that will be included
+4. **Generate precise export commands** with exact cut names
+
+**CURSOR'S INTERPRETATION RESPONSIBILITY:**
+Users will describe what they want in natural language. Cursor MUST:
+- Determine if they want ALL cuts for a dimension → use `dimension_names`
+- Determine if they want SPECIFIC cuts → use `dimension_cuts`
+- Determine if different metrics need different dimensions → use `metric_dimension_map`
+- Generate the appropriate export command with the correct parameters
+- NEVER make users write the export commands themselves
+
+**When to use each approach:**
+- **Same dimensions for all metrics**: Use `dimension_names` or `dimension_cuts` parameters
+- **Different dimensions per metric category**: Use `build_dimension_map_for_categories()` helper
+- **Complex per-metric requirements**: Build custom `metric_dimension_map` dict
+- **Mix of dimension names and specific cuts**: Use `metric_dimension_map` with 'names' and 'cuts'
+
+**Interpretation Workflow:**
+```
+User: "I want to see pizza business performance, but only for PJI and only where it's transformed"
+
+AI Interpretation:
+1. Query metadata to find available cuts
+2. Identify: User wants ent_pizza_biz_pji cuts, but only transformed ones
+3. Find matching cuts:
+   - ent_pizza_biz_pji x pizza_transformed_transformed ✓
+   - ent_pizza_biz_pji x pizza_transformed_not_transformed ✗
+4. Show explicit selection to user
+5. Generate export command:
+   mcp_cursor-analytics_export_curie_experiment_to_sheet(
+       experiment_name='...',
+       primary_metrics=[...],
+       dimension_cuts=['ent_pizza_biz_pji', 'ent_pizza_biz_pji x pizza_transformed_transformed'],
+       use_oauth=True
+   )
+```
+
+**Example Response Template:**
+```
+Based on your request, I'll export with these specific dimension cuts:
+
+📊 Metrics:
+• store_level_page_conversion
+• item_level_page_conversion
+
+📍 Dimension Cuts (exact values):
+• overall (baseline comparison)
+• ent_pizza_biz_pji (PJI only)
+• ent_pizza_biz_pji x pizza_transformed_transformed (PJI transformed UI only)
+
+This will exclude:
+• Other pizza businesses (Little Caesar, Pizza Hut)
+• Non-transformed PJI data
+• All other cross-dimensional combinations
+
+Proceed with this precise selection?
+```
+
+**Generating Export Commands:**
+When user confirms, generate the exact command using the new explicit API:
+
+```
+# Scenario 1: User wants specific cuts only
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    primary_metrics=["store_level_page_conversion"],
+    dimension_cuts=[
+        "ent_pizza_biz_pji",
+        "ent_pizza_biz_pji x pizza_transformed_transformed"
+    ],
+    use_oauth=True
+)
+
+# Scenario 2: User wants all cuts for certain dimensions
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    primary_metrics=["store_level_page_conversion"],
+    dimension_names=["ent_pizza_biz", "pizza_transformed"],
+    use_oauth=True
+)
+
+# Scenario 3: Per-metric dimension requirements
+# Note: For different dimensions per metric category, use separate MCP tool calls
+# First export: Primary metrics with full dimensional analysis
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    primary_metrics=["store_level_page_conversion", "item_level_page_conversion"],
+    dimension_names=["ent_pizza_biz", "pizza_transformed"],
+    use_oauth=True
+)
+# Second export: Secondary metrics with different dimensions (if needed)
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    secondary_metrics=["revenue_metric"],
+    dimension_names=["overall"],  # Overall only
+    use_oauth=True
+)
+```
+
+#### 3.5 Common User Request Patterns
+**Recognize and handle these patterns:**
+
+1. **"Only transformed pizza"**
+   ```
+   Cuts to include:
+   - pizza_transformed_transformed
+   - Any ' x pizza_transformed_transformed' cuts
+   ```
+
+2. **"Compare PJI vs Pizza Hut"**
+   ```
+   Cuts to include:
+   - ent_pizza_biz_pji
+   - ent_pizza_biz_Pizza_hut
+   - Optionally their cross-dimensional cuts if relevant
+   ```
+
+3. **"Just the cross-dimension of pizza and small business"**
+   ```
+   Cuts to include:
+   - Only cuts containing 'x small_biz'
+   - E.g., 'ent_pizza_biz_pji x small_biz_TRUE'
+   ```
+
+4. **"No cross-dimensions"** ✅ (Now Supported!)
+   ```
+   Use dimension_cuts parameter to include only single dimension cuts:
+   - is_drive_pizza_TRUE
+   - is_drive_pizza_FALSE
+   Exclude all cuts containing ' x '
+   
+   Cursor will generate appropriate dimension_cuts list excluding cross-dimensional combinations
+   ```
+
+#### 3.6 User Request → Export Command Mapping (CRITICAL FOR CURSOR)
+**Cursor MUST translate natural language requests into proper API calls:**
+
+**Pattern 1: User wants all data for certain dimensions**
+```
+User: "Show me results by pizza business and transformation status"
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_names=['ent_pizza_biz', 'pizza_transformed'],  # Gets ALL cuts
+    use_oauth=True
+)
+```
+
+**Pattern 2: User wants specific values only**
+```
+User: "Just show me PJI data"
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_cuts=['ent_pizza_biz_pji'],  # Only PJI cut
+    use_oauth=True
+)
+```
+
+**Pattern 3: User wants specific cross-dimensions**
+```
+User: "I want to see how PJI performs when pizza UI is transformed"
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_cuts=[
+        'ent_pizza_biz_pji',  # Base PJI data
+        'ent_pizza_biz_pji x pizza_transformed_transformed',  # PJI + transformed
+        'ent_pizza_biz_pji x pizza_transformed_not_transformed'  # PJI + not transformed for comparison
+    ],
+    use_oauth=True
+)
+```
+
+**Pattern 4: User wants to exclude certain combinations**
+```
+User: "All pizza business data but no cross-dimensions"
+Cursor interprets: Get all single cuts for ent_pizza_biz, exclude ' x ' cuts
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_cuts=[
+        'ent_pizza_biz_Little_Caesar',
+        'ent_pizza_biz_Pizza_hut',
+        'ent_pizza_biz_pji'
+        # Excludes all ' x ' combinations
+    ],
+    use_oauth=True
+)
+```
+
+**Pattern 5: Mixed requirements**
+```
+User: "All pizza businesses, but for transformation I only want to see transformed"
+Cursor generates:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_names=['ent_pizza_biz'],  # All pizza business cuts
+    dimension_cuts=['pizza_transformed_transformed'],  # Only transformed cut
+    use_oauth=True
+)
+```
+
+**NEVER ASK USERS TO WRITE CODE:**
+- Always interpret their natural language request
+- Show them what will be included/excluded
+- Generate and execute the command after confirmation
+- Users should only need to describe what they want in business terms
+
+#### 3.7 Dimension vs Dimension Cut Confusion
+**Users often confuse dimensions with dimension cuts. Handle both:**
+
+**When user asks about a "dimension", check:**
+1. **Dimension names** (e.g., "ent_pizza_biz" is a dimension)
+2. **Dimension cut names** (e.g., "ent_pizza_biz_Little_Caesar" is a dimension cut)
+
+**Example Handling:**
+```
+User: "I want to see Little Caesar data"
+AI interpretation: User is referring to the dimension cut "ent_pizza_biz_Little_Caesar"
+                  This is part of the "ent_pizza_biz" dimension
+Action: Use dimension_cuts=['ent_pizza_biz_Little_Caesar'] for precise filtering
+```
+
+**Common Confusion Patterns:**
+- User says "pizza dimension" → Could mean "ent_pizza_biz" dimension or "pizza_transformed" dimension
+- User says "transformed dimension" → Likely means "pizza_transformed" dimension
+- User says "Little Caesar dimension" → Actually means "ent_pizza_biz_Little_Caesar" dimension cut
+
+#### 3.8 Column Mapping
+**Natural language to technical columns:**
+- "CI" or "confidence intervals" → `relative_impact_ci_lower`, `relative_impact_ci_upper`
+- "sample size" or "n" → `control_unit_count`, `treatment_unit_count`
+- "variance" → `control_stddev`, `treatment_stddev`
+- "definition" → `metric_definition`
+
+### Step 4: Confirm ALL Details IN THE CHAT (NOT IN CONSOLE)
+**⚠️ CRITICAL: Show this confirmation message in the CHAT interface, NOT in console logs!**
+
+**ALWAYS show complete configuration in the chat before executing:**
+
+```
+📊 Export Configuration for: {experiment_name}
+============================================================
+
+🔬 **EXPERIMENT STRUCTURE:**
+• Total rows: {total_rows}
+• Unique metrics: {unique_metrics}
+• Unique dimensions: {unique_dimensions}
+
+🔀 **VARIANT INFORMATION:**
+• Variants ({variant_count}): {list of variants}
+• Control: {control_variant} {show if auto-detected or user-specified}
+• Treatments ({treatment_count}): {list of treatment variants}
+
+📅 **METRICS LAST ANALYZED:**
+{Use ExperimentSheetsFormatter.get_analyzed_at_range() to display}
+Example: "2025-06-25 19:40:09" or "between 2025-06-24 13:30 and 2025-06-26 15:45"
+
+⚠️ **DATA FRESHNESS NOTE:**
+Source tables update every 4 hours. Recent Curie changes may not appear yet.
+
+📋 **METRICS TO EXPORT:**
+============================================================
+**Primary Metrics ({count}):**
+{list each metric on its own line with bullet points}
+
+**Secondary Metrics ({count}):**
+{list each metric on its own line with bullet points}
+
+**Guardrail Metrics ({count}):**
+{list each metric on its own line with bullet points}
+
+📍 **DIMENSIONS PER METRIC CATEGORY:**
+============================================================
+**Primary Metrics:**
+• Dimension(s): {dimension names}
+• Dimension cuts that will be included:
+  {Show ALL cuts including cross-dimensional combinations}
+  
+**Secondary Metrics:**
+• Dimension(s): {dimension names}
+• Dimension cuts that will be included:
+  {Show ALL cuts including cross-dimensional combinations}
+
+**Guardrail Metrics:**
+• Dimension(s): {dimension names or "overall only"}
+• Dimension cuts that will be included:
+  {Show ALL cuts or "overall (no dimensional breakdown)"}
+
+📊 **CROSS-DIMENSIONAL ANALYSIS:**
+{If cross-dimensions are included, show examples}
+Example: "ent_pizza_biz_pji x pizza_transformed_transformed" shows PJI performance when UI is transformed
+
+{If cross-dimensions are excluded}
+"✅ Cross-dimensional combinations EXCLUDED per your request"
+
+📑 **COLUMNS TO INCLUDE:**
+============================================================
+{If default columns}
+Default 7 columns:
+• metric_name
+• dimension_cut_name  
+• control_value / control_val ({control_variant})
+• treatment_value / treatment_val ({treatment_variant})
+• relative_impact
+• p_value
+• stat_sig
+
+{If additional columns requested}
+Default columns PLUS:
+• {list additional columns}
+{If CI requested: "✅ CI data will be combined into relative_impact column as: value (lower, upper)"}
+
+🔐 **EXPORT SETTINGS:**
+============================================================
+• Authentication: OAuth (sheet created in your Google Drive)
+• Share with: {email or "No additional sharing - you'll own the sheet"}
+• Export format: Google Sheets with formatting
+• Tabs: {list tabs that will be created}
+
+============================================================
+**Ready to proceed with export? (yes/no)**
+```
+
+**Example of actual confirmation message in chat:**
+```
+📊 Export Configuration for: tm_negative_DxAB_canary
+============================================================
+
+🔬 **EXPERIMENT STRUCTURE:**
+• Total rows: 136
+• Unique metrics: 32
+• Unique dimensions: 4
+
+🔀 **VARIANT INFORMATION:**
+• Variants (2): 0 percent, 15 percent
+• Control: 15 percent (auto-detected based on null relative impact)
+• Treatments (1): 0 percent
+
+📅 **METRICS LAST ANALYZED:**
+Metrics analyzed on 2025-06-23 between 16:35:54 and 16:56:00
+
+⚠️ **DATA FRESHNESS NOTE:**
+Source tables update every 4 hours. Recent Curie changes may not appear yet.
+
+📋 **METRICS TO EXPORT:**
+============================================================
+**Primary Metrics (2):**
+• assignment_accept_rate
+• dx_app_quality_crash_rate_v2
+
+**Secondary Metrics (30):**
+• avg_dasher_base_pay_usd
+• avg_dat_mins
+• dx_app_quality_delivery_restart_rate
+• dx_app_quality_hang_rate
+• dx_app_quality_is_delivery_restart
+• dx_app_quality_peak_memory
+• dxpay_acceptance_rate_assignment
+• dxpay_active_hourly_profit
+• dxpay_active_hourly_profit_cherry_picker
+• dxpay_active_hourly_profit_high_ar_dx
+• dxpay_active_hourly_profit_low_ar_dx
+• dxpay_active_hourly_profit_mid_ar_dx
+• dxpay_active_hours_per_dasher
+• dxpay_base_pay_per_delivery
+• dxpay_dd_pay_per_active_hour
+• dxpay_dd_pay_per_delivery
+• dxpay_dd_pay_per_mile
+• dxpay_deliveries_per_dasher
+• dxpay_pct_underpay
+• dxpay_underpay_extent
+• gov_per_order_curie
+• hqdr_ratio
+• net_revenue_per_order
+• pct_extremely_underpaid_deliveries_v_2
+• pct_underpaid_deliveries
+• sd_dx_utilization
+• sd_shift_active_hours
+• sd_total_pay_per_active_hour
+• underpay_extent_per_delivery
+• variable_profit_per_order
+
+**Guardrail Metrics (0):**
+(none specified)
+
+📍 **DIMENSIONS PER METRIC CATEGORY:**
+============================================================
+**Primary Metrics:**
+• Dimension(s): crash
+• Dimension cuts that will be included:
+  - overall (baseline for comparison)
+  - crash dimension cuts (showing all crash-related breakdowns)
+
+**Secondary Metrics:**
+• Dimension(s): overall only
+• Dimension cuts that will be included:
+  - overall (no dimensional breakdown)
+
+📊 **CROSS-DIMENSIONAL ANALYSIS:**
+✅ No cross-dimensional combinations in this experiment
+
+📑 **COLUMNS TO INCLUDE:**
+============================================================
+Default columns PLUS:
+• relative_impact_ci_lower
+• relative_impact_ci_upper
+✅ CI data will be combined into relative_impact column as: value% (lower%, upper%)
+
+🔐 **EXPORT SETTINGS:**
+============================================================
+• Authentication: OAuth (sheet created in your Google Drive)
+• Share with: neeraj.ramkumar@doordash.com
+• Export format: Google Sheets with formatting
+• Tabs: All Metrics, Primary Metrics, Secondary Metrics
+
+============================================================
+**Ready to proceed with export? (yes/no)**
+```
+
+**CRITICAL RULES FOR CONFIRMATION:**
+1. **NEVER proceed without showing this full confirmation in the chat**
+2. **NEVER execute export commands until user responds with yes/no**
+3. **If user says "no" or requests changes:**
+   - Apply the changes
+   - Show COMPLETE updated configuration
+   - Get confirmation again
+4. **Console logs are for debugging only - user interaction MUST be in chat**
+
+### Step 5: Execute Export Using MCP Tool
+**Use the MCP export tool and show results IN CHAT:**
+
+```
+# Simple export - use MCP tool for Curie experiment export
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="experiment_name",
+    primary_metrics=["metric1", "metric2"],
+    secondary_metrics=["metric3"], 
+    guardrail_metrics=["metric4", "metric5"],
+    dimension_names=["ent_pizza_biz"],  # Same dimensions for ALL metrics
+    selected_columns=selected_columns,  # Optional
+    share_email="email@example.com",  # Optional - only if user wants to share
+    use_oauth=True  # Default
+)
+# Returns: Formatted success message string with Google Sheets URL, or detailed error information
+```
+
+**MCP Tool Parameters:**
+```
+experiment_name: str                    # Required - Name of the experiment
+primary_metrics: List[str] = None      # Optional - List of primary metrics  
+secondary_metrics: List[str] = None    # Optional - List of secondary metrics
+guardrail_metrics: List[str] = None    # Optional - List of guardrail metrics
+dimension_names: List[str] = None      # Optional - Dimension names (gets all cuts)
+dimension_cuts: List[str] = None       # Optional - Specific dimension cuts
+selected_columns: List[str] = None     # Optional - Columns to include in export
+share_email: str = None               # Optional - Email to share sheet with
+use_oauth: bool = True                # Default - Use OAuth authentication
+```
+
+**Important Notes:**
+- All parameters except `experiment_name` are optional
+- Use `dimension_names` for all cuts of specified dimensions
+- Use `dimension_cuts` for specific cuts only
+- For different dimensions per metric category, use separate MCP tool calls
+- Returns formatted string with success/error information
+
+### Per-Metric Dimension Filtering Examples
+
+**Example 1: Different dimensions for each metric**
+```python
+# User wants:
+# - Store conversion with all pizza business cuts
+# - Item conversion with only PJI cuts
+# - Average price with only transformed pizza cuts
+# - CX metrics at overall only
+
+metric_dimension_map = {
+    'store_level_page_conversion': ['ent_pizza_biz', 'overall'],  # All pizza businesses
+    'item_level_page_conversion': {
+        'cuts': ['ent_pizza_biz_pji', 'ent_pizza_biz_pji x pizza_transformed_transformed']
+    },
+    'sub_avg_item_price': {
+        'cuts': ['pizza_transformed_transformed', 'ent_pizza_biz_pji x pizza_transformed_transformed']
+    },
+    # CX metrics not listed = default to overall only
+}
+
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='consumer_ox_dish_exp_pizza_ui__Android_run3',
+    primary_metrics=['store_level_page_conversion', 'item_level_page_conversion'],
+    secondary_metrics=['sub_avg_item_price'],
+    guardrail_metrics=['cx_app_quality_crash_android'],
+    metric_dimension_map=metric_dimension_map,
+    use_oauth=True
+)
+```
+
+**Example 2: Mixing dimension names and specific cuts**
+```python
+# User wants:
+# - Order rate with all drive pizza cuts plus specific cross-dimensions
+# - Contribution profit with just specific business combinations
+
+metric_dimension_map = {
+    'dsmp_order_rate_7d': {
+        'names': ['is_drive_pizza'],  # Gets all: TRUE, FALSE, and cross-dimensions
+        'cuts': ['ent_pizza_biz_pji x small_biz_TRUE']  # Plus this specific cut
+    },
+    'contribution_profit_per_order': {
+        'cuts': [
+            'ent_pizza_biz_Little_Caesar x is_drive_pizza_TRUE',
+            'ent_pizza_biz_Pizza_hut x is_drive_pizza_TRUE',
+            'ent_pizza_biz_pji x is_drive_pizza_TRUE'
+        ]  # Only pizza orders for each business
+    }
+}
+```
+
+**Example 3: Complex categorized export**
+```python
+# Building dimension map for categorized metrics
+dimension_map = build_dimension_map_for_categories(
+    primary_metrics=['store_level_page_conversion', 'item_level_page_conversion'],
+    secondary_metrics=['sub_avg_item_price', 'variable_profit_per_order'],
+    guardrail_metrics=['cx_app_quality_crash_android', 'core_quality_cancellation'],
+    primary_dimensions=['ent_pizza_biz', 'pizza_transformed'],  # Full dimensional analysis
+    secondary_dimensions=['ent_pizza_biz'],  # Less granular for secondary
+    guardrail_dimensions=[]  # Overall only for guardrails
+)
+
+# This creates a metric_dimension_map like:
+# {
+#     'store_level_page_conversion': ['ent_pizza_biz', 'pizza_transformed', 'overall'],
+#     'item_level_page_conversion': ['ent_pizza_biz', 'pizza_transformed', 'overall'],
+#     'sub_avg_item_price': ['ent_pizza_biz', 'overall'],
+#     'variable_profit_per_order': ['ent_pizza_biz', 'overall'],
+#     'cx_app_quality_crash_android': ['overall'],
+#     'core_quality_cancellation': ['overall']
+# }
+```
+
+**Key Points about metric_dimension_map:**
+- Can be a simple list of dimension names (gets all cuts)
+- Can be a dict with 'names' and/or 'cuts' for fine control
+- Metrics not in the map default to 'overall' only
+- 'overall' is automatically added unless explicitly excluded
+- Allows maximum flexibility for complex analysis requirements
+
+### Step 6: Display Export Results (IN CHAT)
+**After export completes, ALWAYS show results IN THE CHAT:**
+
+**Success Message Template (MUST BE IN CHAT):**
+The MCP tool returns formatted success messages like:
+```
+✅ Curie export completed successfully!
+
+📊 Google Sheets URL: https://docs.google.com/spreadsheets/d/...
+🎯 Control variant: control
+
+The sheet has been created and formatted with experiment results.
+```
+
+**Convert URLs to clickable links:**
+```
+✅ Export completed successfully!
+
+📊 **Google Sheets URL:** [Open in Google Sheets](https://docs.google.com/spreadsheets/d/...)
+🎯 **Control variant:** control
+
+The sheet has been created and formatted with experiment results.
+```
+
+**Failure Message Template (MUST BE IN CHAT):**
+The MCP tool returns detailed error information including:
+- Exception details and traceback
+- Captured logs from the export process  
+- Debug information about parameters
+- Specific suggestions for resolution
+
+### Step 7: Review Export Results (AUTOMATIC)
+**The MCP tool handles all validation and formatting automatically:**
+
+```
+# The MCP export tool automatically:
+# - Validates all data formatting
+# - Applies proper number formatting (percentages, decimals)
+# - Creates merged cells for metric groups
+# - Applies conditional formatting for statistical significance
+# - Sets proper fonts and borders
+# - Provides detailed success/error feedback
+```
+
+**Automatic Validation Includes:**
+- Structure validation (headers, data presence)
+- Number formatting (percentages, decimals)
+- Merge formatting (metric groups)
+- Font formatting (Proxima Nova)
+- Border formatting (between groups)
+- Conditional formatting (stat sig colors)
+
+**The MCP tool response will indicate:**
+- ✅ Success with Google Sheets URL
+- ❌ Detailed error information if something fails
+- 🎯 Control variant detection results
+- 📊 Summary of what was exported
+
+**No manual validation needed** - the MCP tool handles everything automatically and provides comprehensive feedback.
+
+---
+
+## 🎯 KEY BEHAVIORS TO ENFORCE
+
+### Chat Interface Requirements (CRITICAL)
+- **ALL interactions MUST be in the chat interface** - no console-only communication
+- **Initial prompts**: Display requirements gathering in chat, not console
+- **Metadata display**: Show experiment info in chat, not console  
+- **Confirmations**: Full export config in chat for user approval
+- **Progress updates**: Export status in chat
+- **Results**: Success/failure messages with URLs in chat
+- **Validation**: Formatting check results in chat
+
+### Prompting Requirements  
+- **ALWAYS prompt for**: metrics, categorization, dimensions, columns IN THE CHAT
+- **ALWAYS show cross-dimensions**: When displaying available dimensions, explicitly show cross-dimensional combinations with examples IN THE CHAT
+- **ONLY prompt for email if**: `get_default_share_email()` returns None
+- **NEVER skip**: metric categorization or dimension specification
+
+### Confirmation Requirements  
+- **ALWAYS show**: exact metric names with their assigned dimensions
+- **ALWAYS highlight**: any substitutions made (e.g., "⚠️ substituted X for Y")
+- **ALWAYS re-confirm**: entire configuration after ANY user change
+- **NEVER proceed**: without explicit user confirmation
+
+### Interpretation Requirements
+- **DO query**: the database metadata to find available metrics/dimensions
+- **DO interpret**: user intent intelligently using metric descriptions
+- **DO suggest**: closest matches when exact metrics don't exist
+- **DON'T create**: scripts to find metrics - use metadata interpretation
+- **DO explain**: that selecting a dimension includes cross-dimensional cuts by default
+- **DO show**: concrete examples of cross-dimensional combinations
+
+### Validation Requirements
+- **ALWAYS validate**: formatting after every export
+- **NEVER declare**: success without validation passing
+- **ALWAYS report**: specific validation failures to user
+- **DO NOT skip**: validation even if export seems successful
+
+---
+
+## 📊 TECHNICAL REFERENCE
+
+### Available Columns
+**Default (7)**: metric_name, dimension_cut_name, control_value, treatment_value, relative_impact, p_value, stat_sig
+
+**Additional**: metric_definition, metric_category, metric_subcategory, metric_importance, metric_desired_direction, control_unit_count, treatment_unit_count, control_stddev, treatment_stddev, absolute_impact, absolute_impact_ci_lower, absolute_impact_ci_upper, relative_impact_ci_lower, relative_impact_ci_upper, analyzed_at
+
+**Column Ordering**: When metric_definition is requested, it's automatically placed right after metric_name for better readability, regardless of where it appears in the requested columns list.
+
+### Multi-Treatment Experiments
+For experiments with multiple treatment variants (e.g., 6 different treatment groups):
+- The MCP tool automatically detects and handles multiple treatments
+- Default columns change to: metric_name, dimension_cut_name, variant_name, variant_value, relative_impact, p_value, stat_sig
+- All treatment variants are included by default (control + all treatments)
+- The tool automatically detects the control variant based on data patterns
+- For experiments with custom variant names (e.g., "0 percent", "15 percent"), control detection is handled automatically
+- Multi-treatment experiments are clearly labeled in the metadata response
+
+### Export Header Enhancement (NEW)
+The export now automatically includes when metrics were analyzed in Curie:
+- **Same timestamp**: "Exported on 2025-06-20 15:58 - Metrics analyzed at 2025-06-24 13:30:15"
+- **Same minute**: "Exported on 2025-06-20 15:58 - Metrics analyzed at 2025-06-24 13:30"
+- **Same day range**: "Exported on 2025-06-20 15:58 - Metrics analyzed on 2025-06-24 between 13:29:20 and 13:35:54"
+- **Multi-day analysis**: "Exported on 2025-06-20 15:58 - Metrics analyzed between 2025-06-24 13:30:00 and 2025-06-26 15:45:30"
+- **No analyzed_at data**: Falls back to original format "Exported on 2025-06-20 15:58"
+
+This helps users understand:
+- Data freshness (exact time when metrics were last computed in Curie)
+- Export timing vs analysis timing (down to the second)
+- Whether they're looking at recently updated results
+- How long the analysis took (from timestamp range)
+
+**Note**: The analyzed_at timestamp is also available as a column if users want to see per-metric analysis times.
+
+### Confidence Intervals
+When user requests CIs, the system automatically:
+1. Includes `relative_impact_ci_lower` and `relative_impact_ci_upper` columns
+2. Combines them into relative_impact as "5.12% (2.34%, 7.89%)"
+3. Removes individual CI columns after combining (they're integrated into the main column)
+
+**IMPORTANT CI Column Names:**
+The raw data contains: `metric_impact_relative_lower_bound` and `metric_impact_relative_upper_bound`
+These are renamed by the formatter to: `relative_impact_ci_lower` and `relative_impact_ci_upper`
+
+**Example - Including CI Data:**
+```python
+# CORRECT - Use the formatted column names
+selected_columns=['metric_name', 'dimension_cut_name', 'variant_name', 'variant_value', 
+                 'relative_impact', 'p_value', 'stat_sig',
+                 'relative_impact_ci_lower', 'relative_impact_ci_upper']
+
+# WRONG - Don't use old naming conventions
+# 'rel_treatment_effect_ci_lower', 'rel_treatment_effect_ci_upper'  # These don't exist!
+```
+
+### Multi-Tab Output
+Categorization creates separate tabs:
+- "All Metrics" - Complete unfiltered results
+- "Primary Metrics" - Only primary metrics
+- "Secondary Metrics" - Only secondary metrics  
+- "Guardrail Metrics" - Only guardrail metrics
+
+### Formatting Applied
+- **Font**: Proxima Nova 10pt
+- **Numbers**: Percentages (0.00%), decimals (0.0000), integers (#,##0)
+- **Conditional**: Green (#d7ecd8) for positive, Red (#eeb2b2) for negative
+- **Structure**: Merged metric groups, borders between groups, bold significant rows
+
+### Testing with Sample Data
+**Use MCP tools for testing - NO test scripts:**
+```
+# For testing, use the MCP export tool with minimal parameters:
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name="test_experiment",
+    primary_metrics=["test_metric"],
+    dimension_names=["overall"],
+    use_oauth=True
+)
+# The MCP tool handles data validation and formatting automatically
+# Returns formatted success/error message with detailed feedback
+```
+
+### MCP Tools Used
+- **Metadata**: `mcp_cursor-analytics_curie_get_metadata` - Get experiment metadata
+  - Input: experiment_name (string)
+  - Returns: Pre-formatted metadata display string
+- **Export**: `mcp_cursor-analytics_export_curie_experiment_to_sheet` - Export to Google Sheets  
+  - Input: See parameter list above
+  - Returns: Formatted success/error message string with Google Sheets URL
+- **Authentication**: OAuth handled automatically by MCP tools
+- **Output**: Google Sheets (URLs provided in chat responses)
+
+### MCP Tool Response Format
+- Both tools return **formatted strings** ready for display in chat
+- No need to parse or reformat responses - display directly
+- Success responses include Google Sheets URLs
+- Error responses include detailed debugging information
+- All validation and formatting handled automatically
+
+---
+
+## ❌ COMMON MISTAKES TO AVOID
+
+1. **Creating Scripts**: NEVER create check_metrics.py, test_export.py, etc. Use MCP tools only.
+2. **Console-Only Communication**: NEVER use console print statements for user interaction - ALL communication must be in chat
+3. **Skipping Prompts**: ALWAYS gather ALL requirements before proceeding
+4. **Vague Confirmations**: ALWAYS show exact metric-dimension mappings
+5. **Auto-proceeding**: NEVER export without explicit user confirmation
+6. **Ignoring Changes**: ALWAYS re-confirm ENTIRE config after changes
+7. **Skipping Validation**: NEVER declare success without validation passing
+8. **Using Stale Data**: NEVER assume metrics/dimensions from previous exports - ALWAYS query fresh data with `mcp_cursor-analytics_curie_get_metadata`
+9. **Missing Cross-Dimensions**: ALWAYS include cross-dimensional cuts when user requests a dimension (e.g., if user asks for ent_pizza_biz, include ent_pizza_biz x pizza_transformed cuts)
+10. **Dimension Confusion**: ALWAYS check both dimension names AND dimension cut names when user mentions a "dimension" - they often mean dimension cuts
+11. **Not Showing Cross-Dimensions**: ALWAYS show available cross-dimensional combinations when prompting users for dimension selection
+12. **Mixing Dimension Types**: NEVER mix dimension_names and dimension_cuts in the same list - use the explicit separate parameters
+13. **Hiding Cross-Dimensional Options**: ALWAYS explicitly show cross-dimensional combinations with examples when displaying available dimensions - don't just mention they exist
+
+---
+
+## ✅ CORRECT WORKFLOW EXAMPLE
+
+**Example showing ALL interactions in the chat interface:**
+
+```
+User: "Export pizza experiment with conversion metrics"
+
+AI: [RESPONSIBILITY 1: INTERPRET AND PROMPT - IN CHAT]
+To export your Curie experiment results, I need the following information:
+
+1. **Metrics** - You mentioned conversion metrics. Any specific ones?
+2. **Metric Categorization**:
+   - Primary metrics (main success metrics)
+   - Secondary metrics (supporting metrics)
+   - Guardrail metrics (ensure no negative impact)
+3. **Dimensions** - Which dimensions for each metric?
+   
+   Available dimensions for consumer_ox_dish_exp_pizza_ui__Android_run3:
+   
+   📊 Single Dimensions:
+   • overall (aggregate baseline - always included)
+   • ent_pizza_biz (3 cuts: Little_Caesar, Pizza_hut, pji)
+   • pizza_transformed (2 cuts: not_transformed, transformed)
+   
+   🔄 Cross-Dimensional Analysis Available:
+   • ent_pizza_biz × pizza_transformed (6 combinations)
+     Example: ent_pizza_biz_Little_Caesar x pizza_transformed_transformed
+   • Plus 3 other cross-dimensional combinations with other dimensions
+   
+   Note: When you select a dimension, cross-dimensional cuts are included by default.
+   You can exclude cross-dimensions if you prefer single dimension analysis only.
+   
+4. **Columns** - Any columns beyond the 7 defaults?"
+
+User: "Primary: conversion rate, Secondary: avg price, Guardrail: cx metrics. I want pizza business dimension"
+
+AI: [RESPONSIBILITY 2: INTELLIGENT INTERPRETATION]
+[Queries metadata using mcp_cursor-analytics_curie_get_metadata]
+"I've analyzed the available metrics for consumer_ox_dish_exp_pizza_ui__Android_run3:
+
+**Metric Interpretations:**
+✅ 'conversion rate' → Found 2 conversion metrics:
+   - store_level_page_conversion (% of users who convert at store page)
+   - item_level_page_conversion (% of users who convert at item page)
+   
+✅ 'avg price' → Found:
+   - sub_avg_item_price (Average price of items in subtotal)
+   
+✅ 'cx metrics' → Found 6 cx_app_quality Android metrics:
+   - cx_app_quality_crash_android
+   - cx_app_quality_hitch_android
+   - [... and 4 others]
+
+**Dimension Interpretation:**
+✅ 'pizza business dimension' → ent_pizza_biz dimension
+   This will include:
+   - All pizza business cuts (Little_Caesar, Pizza_hut, pji)
+   - Cross-dimensional cuts with pizza_transformed
+   - Plus 'overall' for aggregate baseline
+
+   **Available cross-dimensional combinations:**
+   • ent_pizza_biz × pizza_transformed (6 cuts)
+     - ent_pizza_biz_Little_Caesar x pizza_transformed_not_transformed
+     - ent_pizza_biz_Little_Caesar x pizza_transformed_transformed
+     - ent_pizza_biz_Pizza_hut x pizza_transformed_not_transformed
+     - ent_pizza_biz_Pizza_hut x pizza_transformed_transformed
+     - ent_pizza_biz_pji x pizza_transformed_not_transformed
+     - ent_pizza_biz_pji x pizza_transformed_transformed
+
+Here's the complete configuration:
+📊 Export Configuration for: consumer_ox_dish_exp_pizza_ui__Android_run3
+
+**Metrics to Export:**
+• Primary: store_level_page_conversion, item_level_page_conversion
+• Secondary: sub_avg_item_price
+• Guardrail: [6 cx_app_quality Android metrics]
+
+**Dimensions:**
+• Primary/Secondary: 
+  - ent_pizza_biz (3 business cuts: Little_Caesar, Pizza_hut, pji)
+  - ent_pizza_biz x pizza_transformed (9 cross-dimensional combinations)
+  - overall (aggregate baseline - ALWAYS included)
+• Guardrail: overall only
+
+**Columns:** Default 7 columns
+**Email:** neeraj.ramkumar@doordash.com
+
+Proceed? (y/n)"
+
+User: "Yes"
+
+AI: [RESPONSIBILITY 3: EXECUTE VIA TERMINAL - SHOW PROGRESS IN CHAT]
+🚀 Executing export...
+
+[Runs terminal command in background, shows status in chat]
+
+✅ Export completed successfully!
+
+📊 **Google Sheets URL:** [Open in Google Sheets](mdc:https:/docs.google.com/spreadsheets/d/...)
+🎯 **Control variant:** control  
+📑 **Tabs created:** All Metrics, Primary Metrics, Secondary Metrics, Guardrail Metrics
+
+The sheet has been created in your Google Drive and formatted with:
+- Color coding for statistical significance (green=positive, red=negative)
+- Merged cells for dimension groups
+- Proper number formatting (percentages, decimals)
+- Proxima Nova font for consistency
+
+📋 Formatting Validation Results:
+✅ All formatting validations passed!
+- Structure validation: PASS
+- Number formatting: PASS
+- Merge formatting: PASS
+- Font formatting: PASS
+- Border formatting: PASS
+- Conditional formatting: PASS
+
+Your experiment results are ready for analysis!"
+
+**Example with Dimension Confusion:**
+
+```
+User: "Show me Little Caesar results"
+
+AI: [INTELLIGENT INTERPRETATION]
+"I understand you want to see Little Caesar results. This refers to the dimension cut 'ent_pizza_biz_Little_Caesar' which is part of the 'ent_pizza_biz' dimension.
+
+You have two options:
+1. Just Little Caesar cuts (more focused):
+   • ent_pizza_biz_Little_Caesar
+   • ent_pizza_biz_Little_Caesar x pizza_transformed_not_transformed
+   • ent_pizza_biz_Little_Caesar x pizza_transformed_transformed
+
+2. All pizza businesses for comparison:
+   • All ent_pizza_biz cuts (Little Caesar, Pizza Hut, PJI)
+
+Which would you prefer?"
+
+User: "Just Little Caesar"
+
+AI: "I'll export with only Little Caesar cuts. Here's the command I'll run:"
+
+```python
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='...',
+    primary_metrics=[...],
+    dimension_cuts=[
+        'ent_pizza_biz_Little_Caesar',
+        'ent_pizza_biz_Little_Caesar x pizza_transformed_not_transformed',
+        'ent_pizza_biz_Little_Caesar x pizza_transformed_transformed'
+    ],
+    use_oauth=True
+)
+```
+
+**Continuation Example - ALWAYS Query Fresh Data:**
+
+```
+User: "Actually, can you also add order frequency to that export?"
+
+AI: [QUERIES FRESH DATA AGAIN - Never assumes from previous export]
+[Executes mcp_cursor-analytics_curie_get_metadata again]
+"Let me check the current available metrics for consumer_ox_dish_exp_pizza_ui__Android_run3...
+
+I found several order frequency related metrics:
+- dsmp_order_rate_7d (7-day order rate)
+- dsmp_order_rate_28d (28-day order rate)
+- order_frequency_30d (30-day order frequency)
+
+Which specific order frequency metric would you like to add?
+[Shows updated configuration with the new metric and dimensions...]"
+```
+
+**Per-Metric Dimension Example:**
+
+```
+User: "I want conversion metrics with full pizza analysis, but revenue metrics should only show overall trends"
+
+AI: [INTELLIGENT INTERPRETATION]
+"I understand you want different dimensional analysis for different metric types:
+- Conversion metrics → Full pizza business and transformation analysis
+- Revenue metrics → Overall aggregate only
+
+I'll set this up using the MCP export tool:
+
+```
+# For conversion metrics with full dimensional analysis
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='consumer_ox_dish_exp_pizza_ui__Android_run3',
+    primary_metrics=['store_level_page_conversion', 'item_level_page_conversion'],
+    dimension_names=['ent_pizza_biz', 'pizza_transformed'],
+    use_oauth=True
+)
+
+# For revenue metrics at overall only (separate export if needed)
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='consumer_ox_dish_exp_pizza_ui__Android_run3',
+    secondary_metrics=['variable_profit_per_order', 'contribution_profit'],
+    dimension_names=['overall'],  # Overall only
+    use_oauth=True
+)
+```
+
+This gives you:
+✅ Conversion metrics broken down by all pizza businesses and transformation status
+✅ Revenue metrics showing only overall aggregate trends
+✅ All metrics include the overall baseline for comparison
+
+Proceed with this configuration?"
+```
+
+## 📌 DIMENSION FILTERING EXAMPLES
+
+### Example 1: Different Dimensions per Metric Category
+**User Request**: "Primary metrics with ent_pizza_biz, guardrails at overall only"
+
+**CORRECT MCP Tool Usage (WITH OVERALL ALWAYS INCLUDED)**:
+```
+# Primary metrics with ent_pizza_biz dimensions
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='experiment_name',
+    primary_metrics=['store_level_page_conversion', 'dsmp_order_rate_7d'],
+    dimension_names=['ent_pizza_biz'],  # ALWAYS includes overall automatically
+    use_oauth=True
+)
+
+# Guardrail metrics at overall only (separate export if different dimensions needed)
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='experiment_name',
+    guardrail_metrics=['cx_app_quality_hitch_android', 'core_quality_cancellation'],
+    dimension_names=['overall'],  # Overall only for guardrails
+    use_oauth=True
+)
+```
+
+**IMPORTANT NOTE**: 
+For different dimensions per metric category, you may need separate MCP tool calls since the tool applies the same dimensions to all metrics in a single export.
+
+### Example 2: User Doesn't Specify Dimensions
+**User Request**: "Export conversion metrics" (no dimension mentioned)
+
+**CORRECT Interpretation**:
+```
+# User didn't specify dimensions, so default to "overall" only
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='experiment_name',
+    primary_metrics=['store_level_page_conversion', 'item_level_page_conversion'],
+    dimension_names=['overall'],  # Default when not specified
+    use_oauth=True
+)
+```
+
+### Example 3: Specific Dimensions for Specific Metrics
+**User Request**: "I want ent_pizza_biz for conversion metrics only"
+
+**CORRECT Approach**:
+```
+# For conversion metrics with ent_pizza_biz dimensions
+mcp_cursor-analytics_export_curie_experiment_to_sheet(
+    experiment_name='experiment_name',
+    primary_metrics=['store_level_page_conversion', 'item_level_page_conversion'],
+    dimension_names=['ent_pizza_biz'],  # Includes both ent_pizza_biz cuts AND overall
+    use_oauth=True
+)
+
+# Other metrics would need separate exports if different dimensions required
+```
+
+**What NOT to do**:
+- Don't apply the same dimensions to all metrics when different categories need different dimensions (use separate MCP tool calls instead)
+- Don't forget to include "overall" dimension unless explicitly told not to  
+- Don't create Python scripts - use MCP tools only
+
+## 📱 COMPLETE CHAT INTERACTION EXAMPLE
+
+**Shows ALL interactions in the chat interface from start to finish:**
+
+```
+User: Export tm_negative_DxAB_canary experiment
+
+AI: To export your Curie experiment results, I need the following information:
+
+1. **Metrics to Export**
+   Which metrics would you like to export? (I can show you available metrics if needed)
+
+2. **Metric Categorization** (REQUIRED)
+   - Primary metrics: Main success metrics for your experiment
+   - Secondary metrics: Supporting metrics to understand impact  
+   - Guardrail metrics: Metrics to ensure no negative effects
+
+3. **Dimensions**
+   Which dimensions would you like for each metric category?
+
+4. **Columns**
+   Any columns beyond the 7 defaults? (e.g., "include CI data", "add metric definitions")
+
+User: Primary: assignment_accept_rate, dx_app_quality_crash_rate_v2
+Secondary: rest of the metrics
+Dimensions: crash for primary and overall for secondary
+Include CI data
+
+AI: Let me check what's available for tm_negative_DxAB_canary...
+
+📊 EXPERIMENT METADATA: tm_negative_DxAB_canary
+============================================================
+Total rows: 136
+Unique metrics: 32
+Unique dimensions: 4
+
+🔀 VARIANT INFORMATION:
+Variants (2): 0 percent, 15 percent
+Control: 15 percent (auto-detected)
+Treatments (1): 0 percent
+
+📅 METRICS ANALYZED AT:
+Metrics analyzed on 2025-06-23 between 16:35:54 and 16:56:00
+
+📍 AVAILABLE DIMENSIONS:
+============================================================
+📊 Single Dimensions:
+• overall (aggregate baseline - always included)
+• crash (8 cuts: abl, abl_oom, anr, java, java_oom, main_oom, native, oom)
+• time_of_day_local (4 cuts: dinner, evening, lunch, morning)
+• active_days_last_28d_bin (3 cuts: 0-7, 15-28, 8-14)
+
+🔄 Cross-Dimensional Analysis Available:
+• crash × time_of_day_local (32 combinations)
+  Example: crash_java x time_of_day_local_dinner
+• crash × active_days_last_28d_bin (24 combinations)
+  Example: crash_oom x active_days_last_28d_bin_15-28
+• time_of_day_local × active_days_last_28d_bin (12 combinations)
+  Example: time_of_day_local_morning x active_days_last_28d_bin_0-7
+
+⚠️ NOTE: When you select a dimension, cross-dimensional cuts are included by default.
+You can exclude cross-dimensions if you prefer single dimension analysis only.
+
+[... full confirmation details in chat ...]
+
+Ready to proceed with export? (yes/no)
+
+User: yes
+
+AI: 🚀 Executing export...
+
+✅ Export completed successfully!
+
+📊 **Google Sheets URL:** [Open in Google Sheets](mdc:https:/docs.google.com/spreadsheets/d/1IuMmm5OfwGb7STmj-iA1G54EcyZFa8lHAPYpnjHLkrs)
+🎯 **Control variant:** 15 percent
+📑 **Tabs created:** All Metrics, Primary Metrics, Secondary Metrics
+
+[... validation results ...]
+
+Your experiment results are ready for analysis!
+```
+
+Remember: This is a focused workflow for a specific project. Keep ALL interactions in the chat interface, confirmations explicit, validation mandatory, and NEVER create custom scripts.

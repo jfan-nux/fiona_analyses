@@ -1,0 +1,107 @@
+---
+description: experiment analysis framework from scratch
+globs: 
+alwaysApply: false
+---
+[exp_analysis_workflow]
+
+# Step 0: Context Understanding
+context_understanding_instructions = """
+Before starting any experiment analysis, understand the context:
+1. Use `fetch_experiment_readouts(query)` MCP tool to search for relevant past experiment analyses
+2. Use `fetch_user_context(query)` MCP tool to find user-specific documentation and notes  
+3. Use `fetch_deep_dives(query)` MCP tool to search for related deep analysis documents
+4. Assess relevance of found context - it's ok if nothing is directly relevant
+5. Summarize key insights from relevant context that might inform the current analysis
+6. Document any lessons learned or methodologies from past work that apply
+"""
+
+# Step 1: Analysis Setup
+setup_instructions = """
+When a user asks for help with experiment data analysis:
+1. Ask for an experiment name and create a new folder under user-analysis/{experiment_name}
+2. Create data and outputs subdirectories
+3. Guide the user through setting up the analysis environment
+4. If working with Curie experiments, use `curie_get_metadata()` MCP tool to understand the experiment structure
+5. Use `fetch_experiment_readouts()` and `fetch_deep_dives()` MCP tools to gather existing analysis context
+"""
+
+
+# Step 2: Table and Query Discovery  
+table_discovery_instructions = """
+Discover relevant tables and existing queries for the analysis:
+1. Use `search_queries_by_keyword(keywords)` MCP tool to find queries related to the experiment topic
+2. Use `search_queries_by_table_name(table_name)` MCP tool to find historical usage of specific tables
+3. Use `fetch_pod_queries(query)` MCP tool to search for validated master queries by team/topic
+4. Identify the most relevant tables and query patterns from search results
+5. Document the key tables and existing query approaches that will inform the analysis
+"""
+
+# Step 3: Table Context Understanding
+table_context_instructions = """
+Understand the structure and context of identified tables:
+1. Use `describe_table(table_name)` MCP tool to generate comprehensive table documentation
+2. Use `fetch_table_context(query)` MCP tool to search for existing table documentation and usage patterns
+3. Review table schemas, data types, granularity, and business context
+4. Understand join patterns and relationships between tables
+5. Document any data quality issues or limitations identified
+6. Save table context files for reference during analysis
+"""
+
+# Step 4: Data Collection and Query Writing
+data_collection_instructions = """
+Write and prepare SQL queries for data collection:
+1. Based on table understanding, write appropriate SQL queries for the analysis
+2. Include proper date filtering and data size limitations to avoid performance issues
+3. Create a load_data.py file that contains the SQL queries using `execute_snowflake_query()` MCP tool
+4. Ensure queries follow best practices identified in Step 2 (existing query patterns)
+5. Plan the data structure needed for downstream analysis
+"""
+
+# Step 5: Query Execution and Data Validation
+query_execution_instructions = """
+Execute queries and validate the results:
+1. Run the SQL queries using `execute_snowflake_query()` MCP tool
+2. Validate data quality and check for expected results (row counts, date ranges, etc.)
+3. Perform basic data exploration to understand distributions and patterns
+4. Identify any data issues or unexpected patterns that need investigation
+5. Save raw data results for analysis processing
+6. Use `execute_sql_and_upload_to_google_sheet()` MCP tool if sharing raw data is needed
+"""
+
+# Step 6: Data Analysis
+analysis_instructions = """
+For data analysis:
+1. Use `execute_snowflake_query()` MCP tool for data retrieval in analysis.py
+2. Create analysis.py with functions that generate informative visualizations using the data from Snowflake
+3. Focus on creating summary statistics and visualizations based on data types
+4. Highlight patterns, correlations, and potential insights
+5. Use `execute_sql_and_upload_to_google_sheet()` MCP tool to share results if needed
+"""
+
+# Step 7: Report Generation
+report_instructions = """
+For the final report:
+1. Create a report.py that produces a markdown/PDF report with:
+   - Summary section with author (Snowflake username)
+   - Key findings section
+   - Detailed analysis with visualizations
+   - Data summary section (tables used, filtering, quality issues, etc.)
+2. Save visualizations to the outputs directory
+3. Generate the final report as report.pdf
+"""
+
+# Step 8: Executable Creation
+executable_instructions = """
+Complete the workflow with:
+1. Create run_analysis.sh that executes all steps in sequence
+2. Make the file executable
+"""
+
+# Step 9: Run Analysis and Produce Report
+run_analysis_instructions = """
+1. Run the executable created in step 8 and save the log into a "log" subdirectory
+2. If failed, troubleshoot using the analysis_log.txt file
+3. Review the final report and ensure all analysis steps completed successfully
+"""
+
