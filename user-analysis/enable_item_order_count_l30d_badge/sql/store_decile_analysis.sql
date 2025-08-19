@@ -1,9 +1,10 @@
 /*---------------------------------------------------------------
-  Badge Experiment Analysis by Store Volume Deciles
+  Badge Experiment Analysis by Store Volume Deciles - STORE LEVEL
   
   Purpose: Analyze enable_item_order_count_l30d_badge experiment results
-           broken down by store volume deciles instead of item volume bins
+           at STORE LEVEL broken down by store volume deciles
   
+  Analysis Level: Store-level (one row per delivery across all stores)
   Store Deciles: Based on 30 days prior to 2025-07-25 (June 25 - July 24)
   Analysis Period: July 25 - July 31, 2025
 ----------------------------------------------------------------*/
@@ -18,7 +19,6 @@ WITH store_volume_baseline AS (
     FROM proddb.public.dimension_deliveries
     WHERE 1=1
         AND is_filtered_core = 1
-        AND country_id = 1
         AND active_date BETWEEN '2025-06-25' AND '2025-07-24'  -- 30 days prior to 2025-07-25
         AND store_id IS NOT NULL
     GROUP BY store_id
@@ -34,72 +34,27 @@ store_deciles AS (
 ),
 
 /*---------------------------------------------------------------
-  2. Badge buckets (store-item → volume_bin for filtering)
-     Note: We still use badge bins to filter to items that had badges,
-     but analysis will be by store decile, not item volume bin
-----------------------------------------------------------------*/
-badge_bins AS (
-    SELECT
-        store_id ,
-        item_id  ,
-        CASE 
-            WHEN avg_recent_orders_volume > 0 AND avg_recent_orders_volume <= 10 THEN '10'
-            WHEN avg_recent_orders_volume > 10 AND avg_recent_orders_volume <= 50 THEN '50'
-            WHEN avg_recent_orders_volume > 50 AND avg_recent_orders_volume <= 100 THEN '100'
-            WHEN avg_recent_orders_volume > 100 AND avg_recent_orders_volume <= 150 THEN '150'
-            WHEN avg_recent_orders_volume > 150 AND avg_recent_orders_volume <= 200 THEN '200'
-            WHEN avg_recent_orders_volume > 200 AND avg_recent_orders_volume <= 250 THEN '250'
-            WHEN avg_recent_orders_volume > 250 AND avg_recent_orders_volume <= 300 THEN '300'
-            WHEN avg_recent_orders_volume > 300 AND avg_recent_orders_volume <= 350 THEN '350'
-            WHEN avg_recent_orders_volume > 350 AND avg_recent_orders_volume <= 400 THEN '400'
-            WHEN avg_recent_orders_volume > 400 AND avg_recent_orders_volume <= 450 THEN '450'
-            WHEN avg_recent_orders_volume > 450 AND avg_recent_orders_volume <= 500 THEN '500'
-            WHEN avg_recent_orders_volume > 500 AND avg_recent_orders_volume <= 550 THEN '550'
-            WHEN avg_recent_orders_volume > 550 AND avg_recent_orders_volume <= 600 THEN '600'
-            WHEN avg_recent_orders_volume > 600 AND avg_recent_orders_volume <= 650 THEN '650'
-            WHEN avg_recent_orders_volume > 650 AND avg_recent_orders_volume <= 700 THEN '700'
-            WHEN avg_recent_orders_volume > 700 AND avg_recent_orders_volume <= 750 THEN '750'
-            WHEN avg_recent_orders_volume > 750 AND avg_recent_orders_volume <= 800 THEN '800'
-            WHEN avg_recent_orders_volume > 800 AND avg_recent_orders_volume <= 850 THEN '850'
-            WHEN avg_recent_orders_volume > 850 AND avg_recent_orders_volume <= 900 THEN '900'
-            WHEN avg_recent_orders_volume > 900 AND avg_recent_orders_volume <= 950 THEN '950'
-            WHEN avg_recent_orders_volume > 950 AND avg_recent_orders_volume <= 1000 THEN '1000'
-            WHEN avg_recent_orders_volume > 1000 THEN '1000'
-            ELSE NULL
-        END AS volume_bin
-    FROM proddb.fionafan.treatment_item_order_volume_info
-),
-
-/*---------------------------------------------------------------
-  3. Item-level rows in analysis window
-----------------------------------------------------------------*/
-item_orders AS (
-    SELECT
-        delivery_id ,
-        store_id ,
-        item_id ,
-        sum(subtotal) / 100.0                      AS item_revenue_usd
-    FROM edw.merchant.fact_merchant_order_items
-    WHERE active_date_utc BETWEEN '2025-07-25' AND '2025-07-31'
-    group by all
-),
-
-/*---------------------------------------------------------------
-  4. Core marketplace deliveries
+  2. Core marketplace deliveries with metrics
 ----------------------------------------------------------------*/
 deliveries AS (
     SELECT
-        delivery_id ,
-        creator_id                                 AS consumer_id
+        delivery_id,
+        creator_id                                 AS consumer_id,
+        store_id,
+        order_cart_id,
+        is_first_ordercart_dd,
+        subtotal,
+        variable_profit,
+        gov,
+        created_at
     FROM proddb.public.dimension_deliveries
-    WHERE  active_date BETWEEN '2025-07-24' AND '2025-08-01'
+    WHERE  active_date BETWEEN '2025-07-25' AND '2025-07-31'
       AND  is_filtered_core = TRUE
       AND  NVL(fulfillment_type,'') NOT IN ('shipping')
-      group by all
 ),
 
 /*---------------------------------------------------------------
-  5. Exposure lookup
+  3. Exposure lookup
 ----------------------------------------------------------------*/
 exposures AS (
     SELECT bucket_key        AS consumer_id ,
@@ -108,55 +63,63 @@ exposures AS (
 ),
 
 /*---------------------------------------------------------------
-  6. Combine all data with store deciles
-     Note: We filter to items that have badges but analyze by store decile
+  4. Combine all data with store deciles - STORE LEVEL ANALYSIS
+     Note: Analyze at store/delivery level across all stores
 ----------------------------------------------------------------*/
 joined AS (
     SELECT
-        sd.volume_decile ,
-        sd.volume_tier_label ,
-        sd.baseline_order_count ,
-        b.volume_bin                             AS item_volume_bin,  -- Keep for context
-        e.experiment_group ,
-        d.delivery_id ,
-        io.item_revenue_usd ,
-        io.store_id
+        sd.volume_decile,
+        sd.volume_tier_label,
+        sd.baseline_order_count,
+        e.experiment_group,
+        d.delivery_id,
+        d.store_id,
+        -- Order cart metrics from dimension_deliveries  
+        d.order_cart_id,
+        d.is_first_ordercart_dd,
+        d.subtotal / 100.0                       AS cart_subtotal_usd,
+        d.variable_profit / 100.0                AS cart_variable_profit_usd,
+        d.gov / 100.0                            AS cart_gov_usd
     FROM          deliveries  d
     JOIN          exposures   e  ON d.consumer_id  = e.consumer_id
-    JOIN          item_orders io ON io.delivery_id = d.delivery_id
-    JOIN          badge_bins  b  ON b.store_id     = io.store_id
-                                 AND b.item_id     = io.item_id
-    JOIN          store_deciles sd ON sd.store_id  = io.store_id
+    JOIN          store_deciles sd ON sd.store_id  = d.store_id
 ),
 
 /*---------------------------------------------------------------
-  7. Metrics by store volume decile and experiment group
+  5. Metrics by store volume decile and experiment group
 ----------------------------------------------------------------*/
 metrics AS (
     SELECT
-        volume_decile ,
-        volume_tier_label ,
-        experiment_group ,
+        volume_decile,
+        volume_tier_label,
+        experiment_group,
         
-        -- Core metrics
-        COUNT(DISTINCT delivery_id)             AS order_count ,
-        SUM(item_revenue_usd)                   AS revenue_usd ,
+        -- Core metrics (store-level analysis)
+        COUNT(DISTINCT delivery_id)             AS order_count,
+        SUM(cart_subtotal_usd)                  AS revenue_usd,  -- Use subtotal as revenue proxy
+        
+        -- Cart metrics from dimension_deliveries
+        COUNT(DISTINCT order_cart_id)           AS cart_submit_count,
+        COUNT(DISTINCT CASE WHEN is_first_ordercart_dd = 1 THEN order_cart_id END) AS first_order_cart_submit_count,
+        SUM(cart_subtotal_usd)                  AS cart_submit_subtotal_usd,
+        SUM(cart_variable_profit_usd)           AS cart_submit_variable_profit_usd,
+        SUM(cart_gov_usd)                       AS cart_submit_gov_usd,
         
         -- Context metrics
-        COUNT(DISTINCT store_id)                AS unique_stores ,
-        AVG(baseline_order_count)               AS avg_store_baseline_volume ,
-        MIN(baseline_order_count)               AS min_store_baseline_volume ,
-        MAX(baseline_order_count)               AS max_store_baseline_volume ,
+        COUNT(DISTINCT store_id)                AS unique_stores,
+        AVG(baseline_order_count)               AS avg_store_baseline_volume,
+        MIN(baseline_order_count)               AS min_store_baseline_volume,
+        MAX(baseline_order_count)               AS max_store_baseline_volume,
         
-        -- Badge context (for reference)
-        COUNT(DISTINCT item_volume_bin)         AS unique_item_volume_bins
+        -- Store context (for reference)
+        1                                       AS analysis_stores_flag  -- All stores in this analysis
         
     FROM joined
     GROUP BY 1,2,3
 ),
 
 /*---------------------------------------------------------------
-  8. Control metrics (one row per decile)
+  6. Control metrics (one row per decile)
 ----------------------------------------------------------------*/
 control AS (
     SELECT *
@@ -165,7 +128,7 @@ control AS (
 ),
 
 /*---------------------------------------------------------------
-  9. Treatment metrics (icon / no-icon)
+  7. Treatment metrics (icon / no-icon)
 ----------------------------------------------------------------*/
 treatments AS (
     SELECT *
@@ -174,7 +137,7 @@ treatments AS (
 ),
 
 /*---------------------------------------------------------------
- 10. Treatment uplift by store volume decile
+  8. Treatment uplift by store volume decile
 ----------------------------------------------------------------*/
 decile_treatment_effects AS (
     SELECT
@@ -187,7 +150,7 @@ decile_treatment_effects AS (
         ROUND(t.avg_store_baseline_volume, 0)                    AS avg_store_baseline_volume ,
         t.min_store_baseline_volume ,
         t.max_store_baseline_volume ,
-        t.unique_item_volume_bins ,
+        t.analysis_stores_flag ,
 
         -- Treatment effect calculations
         CASE 
@@ -215,7 +178,7 @@ decile_treatment_effects AS (
 ),
 
 /*---------------------------------------------------------------
-| 11. Overall treatment effects (all deciles combined)
+|  9. Overall treatment effects (all deciles combined)
 ----------------------------------------------------------------*/
 overall_effects AS (
     SELECT
@@ -228,7 +191,7 @@ overall_effects AS (
         ROUND(AVG(t.avg_store_baseline_volume), 0)               AS avg_store_baseline_volume ,
         MIN(t.min_store_baseline_volume)                         AS min_store_baseline_volume ,
         MAX(t.max_store_baseline_volume)                         AS max_store_baseline_volume ,
-        SUM(t.unique_item_volume_bins)                           AS unique_item_volume_bins ,
+        SUM(t.analysis_stores_flag)                              AS analysis_stores_count ,
 
         -- Overall treatment effects
         CASE 
@@ -257,7 +220,7 @@ overall_effects AS (
 )
 
 /*---------------------------------------------------------------
-| 12. Final output - Badge experiment results by store volume decile
+| 10. Final output - Badge experiment results by store volume decile
 ----------------------------------------------------------------*/
 SELECT * FROM decile_treatment_effects
 UNION ALL

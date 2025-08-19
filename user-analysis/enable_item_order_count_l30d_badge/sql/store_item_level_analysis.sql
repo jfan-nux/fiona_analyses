@@ -177,7 +177,7 @@ joined AS (
     FROM experiment_item_orders eio
     INNER JOIN experiment_deliveries ed ON eio.delivery_id = ed.delivery_id
     INNER JOIN exposures e ON ed.consumer_id = e.consumer_id
-    INNER JOIN badge_items bi ON eio.store_id = bi.store_id AND eio.item_id = bi.item_id  -- Only badged items
+    -- INNER JOIN badge_items bi ON eio.store_id = bi.store_id AND eio.item_id = bi.item_id  -- Only badged items
     INNER JOIN store_item_volume_bins sib ON eio.store_id = sib.store_id AND eio.item_id = sib.item_id  -- Only items with historical data
 ),
 
@@ -203,8 +203,7 @@ bin_metrics AS (
         
         -- Additional metrics
         AVG(item_revenue_usd) as avg_revenue_per_order,
-        AVG(quantity) as avg_quantity_per_order
-        
+        AVG(quantity) as avg_quantity_per_order    
     FROM joined
     GROUP BY 1,2,3
 ),
