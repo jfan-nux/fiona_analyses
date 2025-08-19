@@ -155,6 +155,7 @@ exposures AS (
     FROM   METRICS_REPO.PUBLIC.enable_item_order_count_l30d_badge__iOS_users_exposures
 ),
 
+
 /*---------------------------------------------------------------
   9. Join all data together - experiment data with store-item volume bins
      Only include store-item pairs that had badges AND have historical data
@@ -238,6 +239,39 @@ treatment_metrics AS (
 ),
 
 /*---------------------------------------------------------------
+| 13. Most liked overlap statistics by volume bin
+----------------------------------------------------------------*/
+most_liked_overlap_stats AS (
+    SELECT
+        sib.volume_bin,
+        COUNT(*) as total_store_items_in_bin,
+        COUNT(mlc.store_id) as overlapping_with_most_liked,
+        ROUND(
+            COUNT(mlc.store_id)::FLOAT / COUNT(*)::FLOAT * 100, 
+            2
+        ) as pct_overlap_with_most_liked
+    FROM store_item_volume_bins sib
+    LEFT JOIN proddb.fionafan.most_liked_control_items mlc 
+        ON sib.store_id = mlc.store_id AND sib.item_id = mlc.item_id
+    GROUP BY sib.volume_bin
+    
+    UNION ALL
+    
+    -- Overall statistics
+    SELECT
+        0 as volume_bin,
+        COUNT(*) as total_store_items_in_bin,
+        COUNT(mlc.store_id) as overlapping_with_most_liked,
+        ROUND(
+            COUNT(mlc.store_id)::FLOAT / COUNT(*)::FLOAT * 100, 
+            2
+        ) as pct_overlap_with_most_liked
+    FROM store_item_volume_bins sib
+    LEFT JOIN proddb.fionafan.most_liked_control_items mlc 
+        ON sib.store_id = mlc.store_id AND sib.item_id = mlc.item_id
+),
+
+/*---------------------------------------------------------------
  13. Calculate treatment effects by volume decile
 ----------------------------------------------------------------*/
 bin_treatment_effects AS (
@@ -251,6 +285,11 @@ bin_treatment_effects AS (
         ROUND(t.avg_baseline_order_count, 1) as avg_baseline_order_count,
         t.min_baseline_order_count,
         t.max_baseline_order_count,
+        
+        -- Most liked overlap statistics (from CTE)
+        mlos.total_store_items_in_bin,
+        mlos.overlapping_with_most_liked,
+        mlos.pct_overlap_with_most_liked,
         
         -- Treatment effects (percentage differences)
         CASE 
@@ -281,6 +320,7 @@ bin_treatment_effects AS (
         
     FROM treatment_metrics t
     INNER JOIN control_metrics c ON t.volume_bin = c.volume_bin AND t.volume_tier_label = c.volume_tier_label
+    INNER JOIN most_liked_overlap_stats mlos ON t.volume_bin = mlos.volume_bin
 ),
 
 /*---------------------------------------------------------------
@@ -297,6 +337,11 @@ overall_effects AS (
         ROUND(AVG(t.avg_baseline_order_count), 1) as avg_baseline_order_count,
         MIN(t.min_baseline_order_count) as min_baseline_order_count,
         MAX(t.max_baseline_order_count) as max_baseline_order_count,
+        
+        -- Most liked overlap statistics (from CTE - overall)
+        mlos.total_store_items_in_bin,
+        mlos.overlapping_with_most_liked,
+        mlos.pct_overlap_with_most_liked,
         
         -- Overall treatment effects
         CASE 
@@ -327,7 +372,8 @@ overall_effects AS (
         
     FROM treatment_metrics t
     INNER JOIN control_metrics c ON t.volume_bin = c.volume_bin AND t.volume_tier_label = c.volume_tier_label
-    GROUP BY t.experiment_group
+    INNER JOIN most_liked_overlap_stats mlos ON mlos.volume_bin = 0  -- Join to overall stats
+    GROUP BY t.experiment_group, mlos.total_store_items_in_bin, mlos.overlapping_with_most_liked, mlos.pct_overlap_with_most_liked
 )
 
 /*---------------------------------------------------------------

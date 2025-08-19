@@ -60,15 +60,18 @@ def main():
             bin_volume_map[bin_num] = row['avg_baseline_order_count']
             bin_pairs_map[bin_num] = row['unique_store_item_pairs']
     
-    # Create the plots with secondary y-axis for store-item volume
-    fig, axes = plt.subplots(1, 2, figsize=(18, 10))
-    fig.suptitle('Badge Treatment Performance vs Control by Store-Item Volume Bins\n(Volume Bins: <50, 50-100, 100-200, 200-300, ..., 1000+ orders)\nWith Historical Store-Item Volume Context (30d baseline)', fontsize=14, fontweight='bold')
+    # Create the plots with secondary y-axis for store-item volume and most liked overlap
+    fig, axes = plt.subplots(2, 2, figsize=(18, 16))
+    fig.suptitle('Badge Treatment Performance vs Control by Store-Item Volume Bins\n(Volume Bins: <50, 50-100, 100-200, 200-300, ..., 1000+ orders)\nWith Historical Store-Item Volume Context and Most Liked Overlap Analysis', fontsize=14, fontweight='bold')
     
     colors = {'icon treatment': '#1f77b4', 'no icon treatment': '#ff7f0e'}
     markers = {'icon treatment': 'o', 'no icon treatment': 's'}
     
+    # Flatten axes for easier indexing
+    axes_flat = axes.flatten()
+    
     for i, (metric, label) in enumerate(zip(metrics, metric_labels)):
-        ax = axes[i]
+        ax = axes_flat[i]
         
         # Create secondary y-axis for store-item volume
         ax2 = ax.twinx()
@@ -177,6 +180,43 @@ def main():
                 return f'{x:.3f}'
         ax2.yaxis.set_major_formatter(plt.FuncFormatter(format_volume))
     
+    # Add most liked overlap subplot (3rd plot)
+    ax_overlap = axes_flat[2]
+    
+    # Get unique overlap percentages for each bin (should be same for both treatment arms)
+    overlap_data = {}
+    for bin_num in unique_bins:
+        bin_data = df_filtered[df_filtered['volume_bin'] == bin_num]
+        if not bin_data.empty:
+            # Take the first row since overlap should be the same for both treatments
+            overlap_data[bin_num] = bin_data['pct_overlap_with_most_liked'].iloc[0]
+    
+    overlap_values = [overlap_data.get(bin_num, 0) for bin_num in unique_bins]
+    
+    # Create bar chart for overlap percentages
+    bars = ax_overlap.bar(x_positions, overlap_values, 
+                         alpha=0.7, color='purple', width=0.6,
+                         edgecolor='indigo', linewidth=1)
+    
+    # Add value labels on bars
+    for bar, value in zip(bars, overlap_values):
+        height = bar.get_height()
+        ax_overlap.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                       f'{value:.1f}%', ha='center', va='bottom', 
+                       fontsize=9, fontweight='bold')
+    
+    ax_overlap.set_title('% Overlap with "Most Liked" Control Items by Volume Bin', 
+                        fontweight='bold', fontsize=12)
+    ax_overlap.set_xlabel('Store-Item Volume Bins (<50, 50-100, 100-200, ..., 1000+)', fontsize=12)
+    ax_overlap.set_ylabel('% Items Also in "Most Liked" Control', fontsize=11)
+    ax_overlap.set_xticks(x_positions)
+    ax_overlap.set_xticklabels(bin_labels, fontsize=10)
+    ax_overlap.grid(True, alpha=0.3)
+    ax_overlap.set_ylim(0, max(overlap_values) * 1.15 if overlap_values else 100)
+    
+    # Hide the 4th subplot
+    axes_flat[3].set_visible(False)
+    
     plt.tight_layout()
     
     # Save the plot
@@ -192,6 +232,7 @@ def main():
     print('   • Gray bars showing average 30-day store-item baseline volume per bin')
     print('   • Dual y-axis: % treatment effects (left) vs store-item volume (right)')
     print('   • Store-item pairs and volume values annotated directly on treatment effect points')
+    print('   • Most liked overlap percentage by volume bin showing popularity correlation')
     
     # Print summary statistics
     print('\n📈 Store-Item Volume Bin Analysis Summary:')
@@ -219,7 +260,10 @@ def main():
             avg_volume = context_row["avg_baseline_order_count"] if context_row["avg_baseline_order_count"] is not None else 0
             volume_range = f"{context_row['min_baseline_order_count']}-{context_row['max_baseline_order_count']}"
             
-            print(f'\n  {bin_label} (Avg Baseline Volume: {avg_volume:.1f} orders, Range: {volume_range}):')
+            # Get overlap data for this bin (should be same for all treatments)
+            overlap_pct = bin_data['pct_overlap_with_most_liked'].iloc[0] if 'pct_overlap_with_most_liked' in bin_data.columns else 0
+            
+            print(f'\n  {bin_label} (Avg Baseline Volume: {avg_volume:.1f} orders, Range: {volume_range}, Most Liked Overlap: {overlap_pct:.1f}%):')
             for _, row in bin_data.iterrows():
                 treatment = row['treatment_arm']
                 order_pct = row["pct_diff_order_count"] * 100 if row["pct_diff_order_count"] is not None else 0
@@ -287,6 +331,36 @@ def main():
             sweet_spots = high_effect_bins['volume_bin'].tolist()
             sweet_spot_labels = [bin_label_map.get(b, f'V{b}') for b in sweet_spots]
             print(f'     Sweet Spot Volume Bins: {", ".join(sweet_spot_labels)}')
+    
+    # Most liked overlap insights
+    print(f'\n🎯 Most Liked Overlap Analysis:')
+    print('-' * 50)
+    
+    # Analyze overlap correlation with volume
+    overlap_by_bin = []
+    for bin_num in unique_bins:
+        bin_data = df_filtered[df_filtered['volume_bin'] == bin_num]
+        if not bin_data.empty and 'pct_overlap_with_most_liked' in bin_data.columns:
+            overlap_by_bin.append(bin_data['pct_overlap_with_most_liked'].iloc[0])
+        else:
+            overlap_by_bin.append(0)
+    
+    if len(overlap_by_bin) > 1:
+        overlap_correlation = np.corrcoef(unique_bins, overlap_by_bin)[0,1]
+        min_overlap = min(overlap_by_bin)
+        max_overlap = max(overlap_by_bin)
+        avg_overlap = np.mean(overlap_by_bin)
+        
+        print(f'  • Volume-Popularity Correlation: {overlap_correlation:.3f} ({"Strong" if abs(overlap_correlation) > 0.7 else "Moderate" if abs(overlap_correlation) > 0.3 else "Weak"})')
+        print(f'  • Overlap Range: {min_overlap:.1f}% (lowest) to {max_overlap:.1f}% (highest)')
+        print(f'  • Average Overlap: {avg_overlap:.1f}%')
+        
+        if overlap_correlation > 0.3:
+            print(f'  • Pattern: Higher volume bins show significantly more overlap with most liked items')
+        elif overlap_correlation < -0.3:
+            print(f'  • Pattern: Higher volume bins show less overlap with most liked items')
+        else:
+            print(f'  • Pattern: No clear relationship between volume and most liked overlap')
     
     # Store-Item volume context
     print(f'\n📋 Store-Item Volume Context:')
