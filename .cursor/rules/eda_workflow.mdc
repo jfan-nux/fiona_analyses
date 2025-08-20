@@ -1,0 +1,58 @@
+# Exploratory Data Analysis (EDA) Workflow
+
+**Goal**: Produce a concise, data-driven analysis report that answers user questions.
+
+## 1. Project Setup
+1. Ask for analysis name → create `user-analysis/{analysis_name}/` (per organization rules in `global.mdc`)
+2. Create subdirectories: `sql/`, `outputs/`, `logs/`, `python/`
+
+## 2. Table Context Discovery
+**Before writing any queries:**
+1. **Check existing context**: Use `fetch_table_context()` MCP tool to find existing table documentation
+2. **Search historical patterns**: Use `search_queries_by_table_name()` and `search_queries_by_keyword()` MCP tools
+3. **Generate comprehensive docs**: Use `describe_table()` MCP tool to create detailed table context
+4. **Reference context** for join patterns, data quality, common use cases
+
+## 3. Data Collection
+1. **Review table context** using `fetch_table_context()` MCP tool for tables you'll use
+2. **Search proven query patterns** with `search_queries_by_table_name()` and `search_queries_by_keyword()` MCP tools
+3. **Create `load_data.py`** using `execute_snowflake_query()` MCP tool for SQL query functions only (no analysis)
+4. **Update table context** with data characteristics discovered
+
+## 4. Data Analysis
+1. **Create `analysis.py`** using `execute_snowflake_query()` MCP tool for data retrieval
+2. **Save sample**: First 100 rows to `sample_data.csv`
+3. **Data quality checks**: Missing values, unreasonable values, duplicates
+4. **Generate visualizations** and summary statistics → save to `outputs/`
+5. **Share results**: Use `execute_sql_and_upload_to_google_sheet()` MCP tool if needed
+6. **MANDATORY**: Document ALL findings in table context files (follow `global.mdc` template)
+
+## 5. Report Generation
+1. **Create `report.py`** with sections:
+   - Summary (with Snowflake username)
+   - Key findings
+   - Detailed analysis with visualizations
+   - Data summary and lineage
+2. **Generate `report.pdf`** using pandoc (via Python function)
+3. **MANDATORY**: Update table context with insights and confirmed queries
+
+## 6. Finalize & Document
+1. **Save logs** to `logs/` subdirectory
+2. **Verify analysis runs** end-to-end
+3. **Complete context documentation checklist** in `.cursor/rules/analysis_history.mdc` for task planning:
+   - [ ] Row counts and data characteristics
+   - [ ] Data quality issues
+   - [ ] Join patterns
+   - [ ] Business insights
+   - [ ] User-confirmed queries
+   - [ ] Related tables
+   - [ ] Analysis added to common use cases
+
+## Key EDA-Specific Requirements
+- **Always update table context files** using `describe_table()` MCP tool at each step
+- **Mark queries as user-confirmed** when adding to context
+- **Document data quality findings** in context files
+- **Include business insights** discovered through analysis
+- **Follow table context template** defined in `global.mdc`
+- **Use MCP context tools**: `fetch_table_context()`, `fetch_pod_queries()`, `fetch_user_context()` for comprehensive research
+

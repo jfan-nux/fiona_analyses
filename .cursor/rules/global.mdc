@@ -1,0 +1,171 @@
+---
+alwaysApply: true
+---
+# Cursor Analytics Project Rules
+
+## Core Principles
+- **Never Fabricate Data**: Use only real data from Snowflake or user-provided sources
+- **Always activate virtual environment**: `source venv/bin/activate` before running scripts
+- **No README files** for analysis projects
+- **Organize everything** under `user-analysis/` with separate SQL and Python files
+
+## Task Management
+- Use `.cursor/rules/analysis_history.mdc` as scratchpad for task planning
+- Use `.cursor/rules/lessons_learned.mdc` to document fixes and learnings
+- Update progress with todo markers: `[X] Done` `[ ] Pending`
+
+## Analysis Setup
+1. Always activate virtual environment before running scripts
+2. Use table names from reference documents - don't fabricate
+3. Limit table size (date filters, etc.) before joins
+4. Run analysis scripts without waiting to be asked
+5. Don't search web unless explicitly asked
+
+## Organization Rules
+1. Always organize analysis into folders under the `user-analysis/` directory
+2. Each analysis should have its own subdirectory
+3. Always separate SQL scripts from Python files - create a `sql/` folder in each analysis subdirectory
+
+## Data Access & Queries
+
+### Primary Method - MCP Snowflake Tool
+```python
+# Use MCP tool for Snowflake queries:
+# For data retrieval: execute_snowflake_query(query, method='pandas')
+# For non-select statements: execute_snowflake_query(query)
+```
+
+### Query Discovery - MCP Tools
+- **Search by table**: Use `search_queries_by_table_name(table_name, limit=5)` for historical queries on specific tables
+- **Search by keywords**: Use `search_queries_by_keyword(keywords, limit=5)` for queries containing specific terms
+- **Results**: MCP tools return formatted results with execution counts, users, and recent usage
+
+### SQL to Sheets Export
+```python
+# Export query results directly to Google Sheets:
+# execute_sql_and_upload_to_google_sheet(query, tab_name, spreadsheet_id=None)
+```
+
+## Snowflake Table Context Management
+
+When working with Snowflake tables, ALWAYS maintain table context:
+
+### Auto-Generate Context Files
+- **MCP Tool**: Use `describe_table(table_name)` to generate comprehensive table context
+- **Location**: `context/analysis-context/snowflake-table-context/{db_name}/{schema_name}/{table_name}.md`
+- **Triggers**: Query searches, new table discoveries, user-provided context
+- **Content**: Only user-confirmed queries (never AI-generated)
+
+### File Template Structure
+```markdown
+# {db_name}.{schema_name}.{table_name}
+
+## Table Overview
+*Purpose and business context*
+
+## Schema Information
+*Key columns and meanings*
+
+## Data Characteristics
+- **Row Count**: *TBD*
+- **Update Frequency**: *TBD*
+- **Data Freshness**: *TBD*
+
+## Common Use Cases
+*Typical analysis scenarios*
+
+## Useful Queries
+*User-confirmed queries only*
+
+## Join Patterns
+*How this table joins with others*
+
+## Data Quality Notes
+*Known issues, limitations*
+
+## Related Tables
+*Other commonly used tables*
+
+---
+*Last updated: {timestamp}*
+```
+
+### Integration Workflow
+- **Query Search**: Use `search_queries_by_table_name()` and `search_queries_by_keyword()` MCP tools to discover patterns
+- **Table Context**: Use `describe_table()` MCP tool to generate comprehensive documentation
+- **Analysis Work**: Use `fetch_table_context()`, `fetch_pod_queries()`, and other fetch tools for existing context
+- **Knowledge Building**: Accumulate institutional knowledge through MCP context tools
+- **Query Optimization**: Use MCP search tools for proven query patterns
+
+## Context Retrieval
+
+When users request context information, ALWAYS use cursor-analytics MCP functions:
+
+### Context Request Handling
+1. **Use MCP Functions First**: Always use appropriate `mcp_cursor-analytics_fetch_*` functions:
+   - `fetch_table_context` - For Snowflake table documentation and usage patterns
+   - `fetch_pod_queries` - For validated master SQL queries by team/topic
+   - `fetch_user_context` - For user-specific documentation and notes
+   - `fetch_experiment_readouts` - For experiment analysis documents
+   - `fetch_deep_dives` - For deep analysis documentation
+   - `fetch_cursor_rules` - For project rules and guidelines
+
+2. **Show Full Context First**: Display the complete retrieved context:
+   - Show full content from MCP functions without truncation when possible, especially when asked about recent queries. Just show the queries. 
+   - If content exceeds 20,000 characters, truncate with "... (truncated for length)"
+   - Always show the source and relevance score from search results
+
+3. **Then Summarize**: After showing full context, provide a concise summary:
+   - Key takeaways and main points
+   - How the context applies to the user's specific question
+   - Actionable insights or next steps
+
+### Example Pattern:
+```
+User: "I need context on user retention analysis"
+
+AI: [Calls fetch_user_context with query "user retention analysis"]
+
+## 📋 Retrieved Context (Score: 0.95)
+[Shows full context content from MCP function...]
+
+## 🔍 Summary
+[Provides concise summary of key points...]
+```
+
+## Experiment Analysis
+
+### Analysis Type Clarification
+When user requests experiment analysis, clarify:
+1. **Curie Export**: Pre-calculated results → use `.cursor/rules/curie_export_rules.mdc`
+2. **From Scratch**: Raw data analysis → use `.cursor/rules/exp_analysis_workflow.mdc`
+
+### Curie Export Requirements
+**ALWAYS get experiment metadata first before any export:**
+1. When user requests Curie export, ALWAYS use `curie_get_metadata(experiment_name)` MCP tool first
+2. Display metadata summary including:
+   - Available variants and control detection
+   - Whether requested metrics exist (show similar ones if not found)
+   - Whether requested dimensions exist
+   - Any data issues (e.g., no variants detected)
+3. Ask for user confirmation before proceeding
+4. This applies to EVERY export request, even if not the first in conversation
+5. DO NOT ASSUME metrics, dimensions, or variants - always verify with metadata first
+
+## Project Settings
+```ini
+[python]
+indent_size = 4
+line_length = 100
+string_quote = "double"
+sort_imports = true
+
+[lint]
+enable_flake8 = true
+enable_pylint = true
+ignore = ["E501", "W503"]
+
+[format]
+formatter = "black"
+format_on_save = true
+```
