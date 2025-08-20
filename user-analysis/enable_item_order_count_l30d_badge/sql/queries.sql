@@ -787,6 +787,145 @@ ORDER BY
 
 
 
-
 select experiment_group, case when lower(badges) like '%recent order%' then 'recent_order' when lower(badges) like '%most like%' then 'most_liked' else 'other' end as label, count(1) cnt, avg(CARD_POSITION) as card_position 
 from  proddb.fionafan.social_cue_m_card_click_full group by all order by all;
+
+/*---------------------------------------------------------------------------
+  Store-Item Mixshift Analysis - Modified Version
+  - Removed 365-day baseline
+  - Uses treatment_item_order_volume_info for ranking instead of 30-day volumes
+  - Marks items as "not badged" if not in treatment table
+----------------------------------------------------------------------------*/
+CREATE OR REPLACE TABLE proddb.fionafan.store_item_mixshift_by_arm_d20250725_31_modified AS
+WITH
+/*---------------------------------------------------------------------------
+  1.  7-day impressions & orders (experiment period)
+----------------------------------------------------------------------------*/
+deliveries_baseline_exp AS (
+    SELECT
+        core_delivery_volume as delivery_id, 
+        experiment_group
+    FROM (
+        select core_delivery_volume, consumer_id 
+        from proddb.public.firefly_measure_financials_delivery_creation_core
+        WHERE is_filtered_core = 'True'
+            AND dte BETWEEN '2025-07-25' AND '2025-07-31'
+    ) a
+    INNER JOIN METRICS_REPO.PUBLIC.enable_item_order_count_l30d_badge__iOS_users_exposures e 
+        ON a.CONSUMER_ID = e.bucket_key
+    GROUP BY ALL
+),
+
+baseline_exp AS (
+    SELECT
+        a.store_id, 
+        a.store_name,
+        a.item_id, 
+        a.item_name, 
+        experiment_group,
+        COUNT(DISTINCT a.delivery_id) AS order_volume_exp
+    FROM edw.merchant.fact_merchant_order_items a
+    INNER JOIN deliveries_baseline_exp b ON a.delivery_id = b.delivery_id
+    WHERE a.active_date_utc BETWEEN '2025-07-25' AND '2025-07-31'
+    GROUP BY ALL
+),
+
+orders_exp AS (
+    SELECT
+        store_id,
+        store_name,
+        item_id,
+        item_name,
+        experiment_group,
+        order_volume_exp
+    FROM baseline_exp 
+),
+
+ranked_7d AS (
+    SELECT
+        m.*,
+        RANK() OVER (
+            PARTITION BY store_id, experiment_group
+            ORDER BY order_volume_exp DESC
+        ) AS order_rank_exp
+    FROM orders_exp m
+),
+
+/*---------------------------------------------------------------------------
+  2. Badge ranking from treatment_item_order_volume_info
+----------------------------------------------------------------------------*/
+badge_ranking AS (
+    SELECT
+        store_id,
+        item_id,
+        avg_recent_orders_volume,
+        dense_RANK() OVER (
+            PARTITION BY store_id
+            ORDER BY avg_recent_orders_volume DESC
+        ) AS badge_rank
+    FROM proddb.fionafan.treatment_item_order_volume_info
+),
+
+/*---------------------------------------------------------------------------
+  3.  Final mix-shift table
+----------------------------------------------------------------------------*/
+SELECT
+    r.store_id,
+    r.store_name,
+    r.item_id,
+    r.item_name,
+    r.experiment_group,
+
+    -- 7-day experiment metrics
+    r.order_volume_exp,
+    r.order_rank_exp,
+
+    -- Badge info
+    br.avg_recent_orders_volume,
+    br.badge_rank,
+    coalesce(br.badge_rank, 'not_ranked') as badge_rank_coalesced
+
+FROM ranked_7d r
+LEFT JOIN badge_ranking br
+    ON r.store_id = br.store_id
+    AND r.item_id = br.item_id
+
+ORDER BY
+    r.store_id,
+    r.item_id,
+    r.experiment_group;
+
+
+CREATE OR REPLACE TABLE proddb.fionafan.store_item_mixshift_by_arm_d20250725_31_pct_modified AS
+WITH base AS (
+    SELECT
+        t.*,
+
+        /* totals needed for percentage calculations */
+        SUM(order_volume_exp)  OVER (PARTITION BY store_id, experiment_group)
+            AS total_volume_exp_store_arm
+    FROM proddb.fionafan.store_item_mixshift_by_arm_d20250725_31_modified t
+)
+SELECT
+      store_id,
+      store_name,
+      item_id,
+      item_name,
+      experiment_group,
+
+      /* raw volumes & ranks */
+      order_volume_exp,
+      order_rank_exp,
+
+      /*  NEW: share of restaurant’s volume  */
+      order_volume_exp  / NULLIF(total_volume_exp_store_arm, 0)  AS pct_order_volume_exp,
+      /*  NEW: rank-agreement flags  */
+      CASE WHEN order_rank_exp<=5 and badge_rank_coalesced<=5  THEN 1 ELSE 0 END  AS rank_match_badge
+FROM base
+ORDER BY
+      store_id,
+      item_id,
+      experiment_group;
+
+
+
