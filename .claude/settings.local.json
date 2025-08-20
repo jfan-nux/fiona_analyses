@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__cursor-analytics__describe_table",
+      "mcp__cursor-analytics__search_queries_by_keyword",
+      "mcp__cursor-analytics__fetch_table_context",
+      "mcp__cursor-analytics__execute_snowflake_query"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
