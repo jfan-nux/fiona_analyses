@@ -557,8 +557,6 @@ impressions AS (
         cv.experiment_group,
         cv.position
     FROM proddb.fionafan.social_cue_m_card_click_full  cv
-    WHERE 1=1
-      -- AND cv.store_id IS NOT NULL
       -- AND cv.item_id  IS NOT NULL
 )
 /*---------------------------------------------------------------------------
