@@ -152,6 +152,10 @@ When user requests experiment analysis, clarify:
 4. This applies to EVERY export request, even if not the first in conversation
 5. DO NOT ASSUME metrics, dimensions, or variants - always verify with metadata first
 
+### User Rules
+1. When creating tables/temp views with SQL code, create under proddb.fionafan schema, unless otherwise sepcified.
+2. Use group by all instead of group by 1,2,3,4 etc.
+
 ## Project Settings
 ```ini
 [python]
