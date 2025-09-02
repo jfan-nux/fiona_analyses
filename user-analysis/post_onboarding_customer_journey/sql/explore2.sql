@@ -2,115 +2,13 @@
 
 
 
-create or replace table proddb.fionafan.preference_toggle_ice_latest as (
 
-  select consumer_id, dd_device_id, 
-         TO_TIMESTAMP(max(iguazu_event_time)/1000) max_event_time, 
-         listagg(entity_id, ',') within group (order by entity_id) entity_ids
-  from (
-  SELECT *, 
-    ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) as rn
-  FROM IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE 
-  WHERE toggle_type = 'add' and page = 'onboarding_preference_page' 
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) = 1 
-  )
-  group by all
-  );
-
-
-create or replace table proddb.fionafan.preference_experiment_data as (
-SELECT  ee.tag
-               , ee.result
-               , ee.bucket_key
-               , replace(lower(CASE WHEN bucket_key like 'dx_%' then bucket_key
-                    else 'dx_'||bucket_key end), '-') AS dd_device_ID_filtered
-                , segment
-                , min (custom_attributes:userId) as user_id
-               , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date) AS day
-               , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)) EXPOSURE_TIME
-FROM proddb.public.fact_dedup_experiment_exposure ee
-WHERE experiment_name = 'cx_mobile_onboarding_preferences'
-AND ee.segment = 'iOS'
-AND experiment_version::INT = 1
-AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
-GROUP BY 1,2,3,4,5
-
-);
 
 -- select user_id, count(1) cnt from proddb.fionafan.experiment_preference_events group by all having cnt>1 order by cnt desc;
-select * from proddb.fionafan.experiment_preference_events where user_id = '1125900323560425' order by event_timestamp asc;
+select * from proddb.fionafan.experiment_preference_events where user_id = '1125900323560425' order by event_timestamp asc limit 10;
 
 
 
--- Create combined table with experiment exposure, preferences, and post-exposure events
-CREATE OR REPLACE TABLE proddb.fionafan.experiment_preference_events AS (
-
-WITH experiment_with_preferences AS (
-  SELECT 
-    exp.tag,
-    exp.result,
-    exp.bucket_key,
-    exp.dd_device_ID_filtered,
-    exp.user_id,
-    exp.segment,
-    exp.day,
-    exp.exposure_time,
-    -- Include entity_ids for treatment users, null for control
-    CASE 
-      WHEN exp.tag <> 'control' THEN pref.entity_ids 
-      ELSE NULL 
-    END AS entity_ids,
-    -- Calculate effective exposure time
-    CASE 
-      WHEN exp.tag <> 'control' AND pref.max_event_time IS NOT NULL 
-        THEN GREATEST(exp.exposure_time, pref.max_event_time)
-      ELSE exp.exposure_time 
-    END AS effective_exposure_time,
-    pref.consumer_id,
-    pref.max_event_time AS preference_time
-  FROM proddb.fionafan.preference_experiment_data exp
-  LEFT JOIN proddb.fionafan.preference_toggle_ice_latest pref
-    ON exp.dd_device_ID_filtered = replace(lower(CASE WHEN pref.dd_device_id like 'dx_%' then pref.dd_device_id
-                    else 'dx_'||pref.dd_device_id end), '-') 
-),
-events_with_experiment AS (
-  SELECT 
-    ewp.*,
-    events.event_date,
-    events.session_num,
-    events.platform,
-    events.timestamp AS event_timestamp,
-    events.event_type,
-    events.event,
-    events.discovery_surface,
-    events.discovery_feature,
-    events.detail,
-    events.store_id,
-    events.store_name,
-    events.context_timezone,
-    events.context_os_version,
-    events.event_rank,
-    events.discovery_surface_click_attr,
-    events.discovery_feature_click_attr,
-    events.discovery_surface_imp_attr,
-    events.discovery_feature_imp_attr,
-    events.pre_purchase_flag,
-    events.l91d_orders,
-    events.last_order_date
-  FROM experiment_with_preferences ewp
-  INNER JOIN tyleranderson.events_all events
-    ON lower(ewp.dd_device_ID_filtered) = replace(lower(CASE WHEN events.dd_device_id like 'dx_%' then events.dd_device_id
-                      else 'dx_'||events.dd_device_id end), '-') 
-    AND events.timestamp > ewp.effective_exposure_time
-    AND events.event_date >= '2025-08-18'  -- Filter events after 2025-08-18
-),
-ranked_events AS (
-  SELECT 
-    *,
-    RANK() OVER (PARTITION BY dd_device_ID_filtered ORDER BY event_timestamp) AS action_rank
-  FROM events_with_experiment
-)
-SELECT * FROM ranked_events);
 
 
 create or replace  table proddb.fionafan.preference_experiment_m_card_view as (
@@ -296,93 +194,6 @@ and entity_ids is not null
 group by all
 ;
 
--- Create table with order information for experiment preference events population
--- Following the same pattern as the experiment analysis logic
-CREATE OR REPLACE TABLE proddb.fionafan.experiment_preference_orders AS (
-
-
-
-  WITH order_events AS (
-    SELECT DISTINCT 
-      a.DD_DEVICE_ID,
-      replace(lower(CASE WHEN a.DD_device_id like 'dx_%' then a.DD_device_id
-                  else 'dx_'||a.DD_device_id end), '-') AS dd_device_ID_filtered,
-      convert_timezone('UTC','America/Los_Angeles',a.timestamp)::date as order_day,
-      convert_timezone('UTC','America/Los_Angeles',a.timestamp) as order_timestamp,
-      a.order_cart_id,
-      dd.delivery_id,
-      dd.active_date,
-      dd.created_at,
-      dd.actual_delivery_time,
-      dd.gov * 0.01 AS gov,  -- Convert to dollars
-      dd.subtotal * 0.01 AS subtotal,
-      dd.total_item_count,
-      dd.distinct_item_count,
-      dd.is_consumer_pickup,
-      dd.is_first_ordercart,
-      dd.is_first_ordercart_dd,
-      dd.is_subscribed_consumer,
-      dd.store_id,
-      dd.store_name,
-      dd.variable_profit * 0.01 AS variable_profit,
-      dd.tip * 0.01 AS tip,
-      dd.delivery_fee * 0.01 AS delivery_fee,
-      dd.service_fee * 0.01 AS service_fee
-    FROM segment_events_raw.consumer_production.order_cart_submit_received a
-    JOIN dimension_deliveries dd
-      ON a.order_cart_id = dd.order_cart_id
-      AND dd.is_filtered_core = 1
-      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
-  ),
-  
-  experiment_orders AS (
-    SELECT distinct
-      epe.tag,
-      epe.result,
-      epe.dd_device_ID_filtered,
-      epe.effective_exposure_time,
-      epe.user_id,
-      
-      -- Order information
-      oe.delivery_id,
-      oe.order_cart_id,
-      oe.order_day,
-      oe.order_timestamp,
-      oe.active_date,
-      oe.created_at AS order_created_at,
-      oe.actual_delivery_time,
-      oe.gov,
-      oe.subtotal,
-      oe.total_item_count,
-      oe.distinct_item_count,
-      oe.is_consumer_pickup,
-      oe.is_first_ordercart,
-      oe.is_first_ordercart_dd,
-      oe.is_subscribed_consumer,
-      oe.store_id,
-      oe.store_name,
-      oe.variable_profit,
-      oe.tip,
-      oe.delivery_fee,
-      oe.service_fee,
-      
-      -- Calculate time between exposure and order
-      DATEDIFF('hour', epe.effective_exposure_time, oe.order_timestamp) AS hours_between_exposure_and_order,
-      DATEDIFF('day', epe.effective_exposure_time, oe.order_timestamp) AS days_between_exposure_and_order,
-      
-
-    FROM (select distinct dd_device_ID_filtered, effective_exposure_time, tag, result, user_id from proddb.fionafan.experiment_preference_events) epe
-
-    LEFT JOIN order_events oe
-      ON epe.dd_device_ID_filtered = oe.dd_device_ID_filtered 
-      AND epe.effective_exposure_time <= oe.order_timestamp  -- Order must be after effective exposure
-  )
-  
-  SELECT * FROM experiment_orders
-  WHERE delivery_id IS NOT NULL  -- Only include rows where we found orders
-);
-
 
 -- Check the new table - following the experiment analysis pattern
 SELECT 
@@ -422,3 +233,24 @@ select event_type, event, event_rank,discovery_feature,discovery_surface,  count
 where event_type = 'funnel' and date_trunc('day',timestamp)='2025-08-01'
 group by all
 order by event_rank asc, cnt desc;
+
+-- does the viewed content contain at least one expressed preference? at what order of viewed content?
+-- first session length, and rate of place order at first session
+
+
+
+
+select *  FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice where consumer_id = '1449581118'  limit 10;
+
+select date_trunc('day', iguazu_timestamp) as date, dd_platform, promo_title, onboarding_type, count(1) cnt 
+FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice group by all order by 1;
+
+
+
+select distinct page FROM iguazu.consumer.M_onboarding_page_click_ice;
+
+
+
+select experiment_name, min(exposure_time) as min_exposure_time, max(exposure_time) as max_exposure_time from proddb.public.fact_dedup_experiment_exposure
+where exposure_time >='2025-03-15' and exposure_time < '2025-05-16' and experiment_name = 'cx_mobile_show_onboarding_screen_marketing_sms'
+group by all ;
