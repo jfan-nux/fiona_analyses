@@ -600,7 +600,7 @@ SELECT
   tag,
   
   COUNT(*) AS total_users,
-  avg(if_exists_first_session) AS avg_if_exists_first_session,
+  -- avg(if_exists_first_session) AS avg_if_exists_first_session,
   avg(if_cuisine_filter) AS avg_if_cuisine_filter,
   avg(if_place_order) AS avg_if_place_order,
   avg(total_events_first_session) AS avg_total_events_first_session,
@@ -618,12 +618,12 @@ SELECT
   
   -- Preference-store overlap metrics (for treatment only)
   AVG(if_entity_store_overlap) AS preference_store_overlap_rate,
-  AVG(entity_store_overlap_count/NULLIF(total_events_store_impression,0)) AS avg_overlap_rate_per_impression,
   
   -- Session engagement
   AVG(total_events_first_session) AS avg_events_first_session,
   AVG(total_events_store_impression) AS avg_store_impressions_first_session
   
 FROM proddb.fionafan.preference_first_session_analysis
+where if_exists_first_session=1
 GROUP BY 
 all;
