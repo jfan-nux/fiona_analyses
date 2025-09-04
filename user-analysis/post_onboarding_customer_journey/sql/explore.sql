@@ -122,10 +122,34 @@ select page, avg(entity_cnt) avg_entity_cnt, count(distinct consumer_id) cnt fro
 
 
 iguazu.consumer.m_onboarding_start_promo_page_view_ice
+
 iguazu.consumer.m_onboarding_start_promo_page_click_ice
 iguazu.consumer.M_onboarding_page_view_ice (filter on page = '')
 iguazu.consumer.M_onboarding_page_click_ice (filter on page = '')
 iguazu_consumer.m_onboarding_end_promo_page_view_ice
-iguazu_consumer.m_onboarding_end_promo_page_click_ice
+iguazu_consumer.m_onboarding_end_promo_page_click_ice;
 
+
+segment_events_raw.consumer_production.m_att_system_tracking_authorized
+
+segment_events_raw.consumer_production.m_att_system_tracking_declined
+
+segment_events_raw.consumer_production.m_att_description_view_appear
+
+segment_events_raw.consumer_production.m_att_description_view_allow_button_tap;
+
+select context_device_id, min (convert_timezone(context_timezone,'America/Los_Angeles',sent_at)) pst_exposure_time
+from segment_events_raw.consumer_production.m_att_system_tracking_declined 
+where sent_at between '2025-08-18' and '2025-09-30' 
+group by all limit 10;
+
+
+select context_device_id, count(1) cnt from segment_events_raw.consumer_production.m_att_system_tracking_authorized 
+
+group by all having cnt>1 limit 10;
+
+
+select * from segment_events_raw.consumer_production.m_att_system_tracking_authorized  where context_device_id = 'AC63506D-2EC6-405C-A3BF-C9015F3B6F07' limit 10;
+
+select distinct context_timezone from segment_events_raw.consumer_production.m_att_description_view_allow_button_tap ;
 

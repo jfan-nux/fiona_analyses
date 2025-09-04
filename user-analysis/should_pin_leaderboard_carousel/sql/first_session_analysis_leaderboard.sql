@@ -1,7 +1,17 @@
 CREATE OR REPLACE TABLE proddb.fionafan.experiment_pin_leaderboard_events AS (
 
 
-WITH experiment_data as (
+WITH onboarding_users AS
+(SELECT DISTINCT replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE_ID
+                        else 'dx_'||DD_DEVICE_ID end), '-') AS dd_device_ID_filtered
+      , iguazu_timestamp as join_time
+      , cast(iguazu_timestamp as date) AS onboard_day
+      , consumer_id
+from iguazu.consumer.m_onboarding_start_promo_page_view_ice
+WHERE iguazu_timestamp BETWEEN '2025-08-25'::date-60 AND '2025-09-30'
+)
+
+, experiment_data as (
 
     SELECT  ee.tag
                , ee.result
@@ -11,6 +21,9 @@ WITH experiment_data as (
                , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date) AS day
                , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)) EXPOSURE_TIME
 FROM proddb.public.fact_dedup_experiment_exposure ee
+INNER JOIN onboarding_users ou 
+    ON ee.bucket_key = ou.consumer_id
+    AND convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date = ou.onboard_day
 WHERE experiment_name = 'should_pin_leaderboard_carousel'
 AND ee.segment = 'iOS'
 AND experiment_version::INT = 2
