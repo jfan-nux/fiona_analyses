@@ -34,8 +34,8 @@ SELECT
 -- Simple funnel analysis with ATT tracking events
 WITH att_tracking_events AS (
   SELECT 
-    replace(lower(CASE WHEN context_device_id like 'dx_%' then context_device_id
-                      else 'dx_'||context_device_id end), '-') as dd_filtered_device_id,
+    replace(lower(CASE WHEN DD_device_id like 'dx_%' then DD_device_id
+                      else 'dx_'||DD_device_id end), '-') as dd_filtered_device_id,
     min(convert_timezone(context_timezone,'America/Los_Angeles',sent_at)) as min_att_event_time,
     'declined' as att_decision
   FROM segment_events_raw.consumer_production.m_att_system_tracking_declined 
@@ -45,19 +45,20 @@ WITH att_tracking_events AS (
   UNION ALL
   
   SELECT 
-    replace(lower(CASE WHEN context_device_id like 'dx_%' then context_device_id
-                      else 'dx_'||context_device_id end), '-') as dd_filtered_device_id,
+    replace(lower(CASE WHEN DD_device_id like 'dx_%' then DD_device_id
+                      else 'dx_'||DD_device_id end), '-') as dd_filtered_device_id,
     min(convert_timezone(context_timezone,'America/Los_Angeles',sent_at)) as min_att_event_time,
     'authorized' as att_decision
   FROM segment_events_raw.consumer_production.m_att_system_tracking_authorized 
+
   WHERE date_trunc('day',convert_timezone(context_timezone,'America/Los_Angeles',sent_at)) >= '2025-08-26'::date-30
   GROUP BY 1
   UNION ALL
   
 
   SELECT 
-    replace(lower(CASE WHEN context_device_id like 'dx_%' then context_device_id
-                      else 'dx_'||context_device_id end), '-') as dd_filtered_device_id,
+    replace(lower(CASE WHEN DD_device_id like 'dx_%' then DD_device_id
+                      else 'dx_'||DD_device_id end), '-') as dd_filtered_device_id,
     min(convert_timezone(context_timezone,'America/Los_Angeles',sent_at)) as min_att_event_time,
     'authorized' as att_decision
   FROM segment_events_raw.consumer_production.m_att_description_view_appear 
@@ -84,7 +85,7 @@ funnel AS (
     a.pst_exposure_time as att_page_exposure_time
   FROM (SELECT DISTINCT dd_filtered_device_id, min(pst_exposure_time) as pst_exposure_time 
         FROM proddb.fionafan.notification_one_day_view GROUP BY 1) n
-  FULL OUTER JOIN (SELECT DISTINCT dd_filtered_device_id, min(pst_exposure_time) as pst_exposure_time 
+  LEFT JOIN (SELECT DISTINCT dd_filtered_device_id, min(pst_exposure_time) as pst_exposure_time 
                    FROM proddb.fionafan.att_one_day_view GROUP BY 1) a
     ON n.dd_filtered_device_id = a.dd_filtered_device_id
 ),
