@@ -440,6 +440,6 @@ SELECT
   AVG(total_events_store_impression) AS avg_store_impressions_first_session
   
 FROM proddb.fionafan.pin_leaderboard_first_session_analysis
-
+where if_exists_first_session = 1
 GROUP BY all
 ORDER BY all;
