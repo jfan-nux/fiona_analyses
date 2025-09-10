@@ -25,31 +25,32 @@ def create_ordered_entity_segments(df):
     """Create ordered list of entity segments for x-axis"""
     # Get unique entity segments from the data
     segments = df['entity_segment'].unique()
-    
+
     ordered_segments = []
-    
-    # Add control_overall first
+
+    # Required ordering: control overall, treatment overall, treatment with preference, treatment without preference
     if 'control_overall' in segments:
         ordered_segments.append('control_overall')
-    
-    # Add overall_treatment second (overall treatment vs control comparison)
+
     if 'overall_treatment' in segments:
         ordered_segments.append('overall_treatment')
-    
-    # Add entity_cnt_1 through entity_cnt_20 in numerical order
+
+    if 'overall_with_preference' in segments:
+        ordered_segments.append('overall_with_preference')
+
+    if 'no_preference' in segments:
+        ordered_segments.append('no_preference')
+
+    # Add entity_cnt_1 through entity_cnt_20 in numerical order after the overall segments
     for i in range(1, 21):
         seg_name = f'entity_cnt_{i}'
         if seg_name in segments:
             ordered_segments.append(seg_name)
-    
-    # Add no_preference last
-    if 'no_preference' in segments:
-        ordered_segments.append('no_preference')
-    
+
     # Add any remaining segments
     remaining = [s for s in segments if s not in ordered_segments]
     ordered_segments.extend(remaining)
-    
+
     return ordered_segments
 
 def plot_topline_breakdown(df):
@@ -60,6 +61,10 @@ def plot_topline_breakdown(df):
     
     # Filter and reorder the dataframe to include all segments in proper order
     plot_df = df[df['entity_segment'].isin(ordered_segments)].copy()
+
+    # Exclude treatment-with-preference and treatment-without-preference from the graph
+    exclude_segments = {"overall_with_preference", "no_preference"}
+    plot_df = plot_df[~plot_df['entity_segment'].isin(exclude_segments)]
     plot_df['entity_segment'] = pd.Categorical(
         plot_df['entity_segment'], 
         categories=ordered_segments, 
@@ -125,29 +130,51 @@ def plot_topline_breakdown(df):
             formatted_labels.append('Control Overall')
         elif segment == 'overall_treatment':
             formatted_labels.append('Overall Treatment')
+        elif segment == 'overall_with_preference':
+            formatted_labels.append('Treatment With Preference')
         elif segment.startswith('entity_cnt_'):
             num = segment.replace('entity_cnt_', '')
             formatted_labels.append(f'Entity Count {num}')
         elif segment == 'no_preference':
-            formatted_labels.append('No Preference')
+            formatted_labels.append('Treatment Without Preference')
         else:
             formatted_labels.append(segment.replace('_', ' ').title())
     
     ax1.set_xticklabels(formatted_labels, rotation=45, ha='right')
     
+    # Compute exposure percentages
+    total_treatment_exposure = (
+        df.loc[df['entity_segment'] == 'overall_treatment', 'exposure'].iloc[0]
+        if (df['entity_segment'] == 'overall_treatment').any() else np.nan
+    )
+    total_control_exposure = (
+        df.loc[df['entity_segment'] == 'control_overall', 'exposure'].iloc[0]
+        if (df['entity_segment'] == 'control_overall').any() else np.nan
+    )
+
+    def compute_exposure_pct(row):
+        seg = row['entity_segment']
+        if seg == 'control_overall':
+            return 1.0 if pd.notna(total_control_exposure) and total_control_exposure > 0 else np.nan
+        if seg == 'overall_treatment':
+            return 1.0 if pd.notna(total_treatment_exposure) and total_treatment_exposure > 0 else np.nan
+        return (row['exposure'] / total_treatment_exposure) if total_treatment_exposure not in (0, np.nan) else np.nan
+
+    plot_df['exposure_pct'] = plot_df.apply(compute_exposure_pct, axis=1)
+
     # Create second y-axis for exposure
     ax2 = ax1.twinx()
     
-    # Plot exposure as bars on the second y-axis
+    # Plot exposure percentage as bars on the second y-axis
     bar_width = 0.4  # Width for exposure bars
-    exposure_bars = ax2.bar(x_pos, plot_df['exposure'], 
-                           bar_width, label='Exposure', 
+    exposure_bars = ax2.bar(x_pos, plot_df['exposure_pct'], 
+                           bar_width, label='Exposure %', 
                            color='red', alpha=0.6, edgecolor='darkred')
     
     # Add exposure value labels on bars
-    for bar, val in zip(exposure_bars, plot_df['exposure']):
+    for bar, val in zip(exposure_bars, plot_df['exposure_pct']):
         height = bar.get_height()
-        ax2.annotate(f'{int(val):,}',
+        ax2.annotate(f'{val:.1%}',
                    xy=(bar.get_x() + bar.get_width() / 2, height),
                    xytext=(0, 5),
                    textcoords="offset points",
@@ -155,11 +182,11 @@ def plot_topline_breakdown(df):
                    fontsize=8, fontweight='bold',
                    color='darkred', rotation=90)
     
-    ax2.set_ylabel('Exposure (Count)', fontsize=12, fontweight='bold', color='red')
+    ax2.set_ylabel('Exposure (%)', fontsize=12, fontweight='bold', color='red')
     ax2.tick_params(axis='y', labelcolor='red')
     
     # Format exposure axis
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{int(y):,}'))
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.0%}'))
     
     # Align both y-axes at 0
     y1_min, y1_max = ax1.get_ylim()

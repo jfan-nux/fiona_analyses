@@ -1,5 +1,5 @@
 -- Time series union query for onboarding funnel steps
-WITH start_date AS (SELECT '2025-08-18' as start_dt),
+WITH start_date AS (SELECT '2025-08-04' as start_dt),
      end_date AS (SELECT '2025-09-30' as end_dt),
 
 onboarding_funnel_timeseries AS (

@@ -100,8 +100,8 @@ CREATE OR REPLACE TABLE proddb.fionafan.experiment_pin_leaderboard_orders AS (
     JOIN dimension_deliveries dd
       ON a.order_cart_id = dd.order_cart_id
       AND dd.is_filtered_core = 1
-      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
+      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-04' AND '2025-09-30'
+    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-04' AND '2025-09-30'
   ),
   
   experiment_orders AS (

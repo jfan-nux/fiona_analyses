@@ -416,3 +416,8 @@ CREATE OR REPLACE TABLE proddb.fionafan.session_duration_by_order_outcome AS (
     END
 );
 select * from proddb.fionafan.session_duration_by_order_outcome order by session_type, duration_bucket;
+
+
+
+-- which carosel is performing the best?
+-- for people who order from your recent order, do they order the same thing?

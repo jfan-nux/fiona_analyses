@@ -6,6 +6,7 @@ WITH entity_counts AS (
   SELECT consumer_id,
          entity_cnt
   FROM proddb.fionafan.preference_entity_cnt_distribution
+
   WHERE page = 'onboarding_preference_page'
     AND entity_cnt IS NOT NULL
 ),
@@ -27,11 +28,27 @@ exposure AS (
   WHERE experiment_name = 'cx_mobile_onboarding_preferences'
     AND experiment_version::INT = 1
     AND segment IN ('iOS')
-    AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
+    AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-04' AND '2025-09-30'
   GROUP BY 1,2,3,4,5,6
 )
 
-,orders AS (
+,preferences_after_exposure AS (
+  -- Preference expressions tied to this experiment window and occurring on/after exposure
+  SELECT DISTINCT
+    e.dd_device_ID_filtered,
+    e.consumer_id,
+    p.max_event_time AS preference_time
+  FROM exposure e
+  JOIN proddb.fionafan.preference_toggle_ice_latest p
+    ON e.consumer_id = p.consumer_id
+    AND e.dd_device_ID_filtered = replace(lower(CASE WHEN p.dd_device_id like 'dx_%' then p.dd_device_id
+                    else 'dx_'||p.dd_device_id end), '-')
+  WHERE p.max_event_time IS NOT NULL
+    AND p.max_event_time >= e.exposure_time
+    AND p.max_event_time::date BETWEEN '2025-08-04' AND '2025-09-30'
+),
+
+orders AS (
   SELECT DISTINCT a.DD_DEVICE_ID,
          replace(lower(CASE WHEN a.DD_device_id like 'dx_%' then a.DD_device_id
                      else 'dx_'||a.DD_device_id end), '-') AS dd_device_ID_filtered,
@@ -45,8 +62,8 @@ exposure AS (
       JOIN dimension_deliveries dd
       ON a.order_cart_id = dd.order_cart_id
       AND dd.is_filtered_core = 1
-      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-  WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
+      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-04' AND '2025-09-30'
+  WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-04' AND '2025-09-30'
 ),
 
 checkout AS (
@@ -114,6 +131,37 @@ checkout AS (
       AND e.day <= o.day
   WHERE e.TAG NOT IN ('internal_test','reserved','control')  -- Exclude control from overall treatment
   GROUP BY 1, 2, 3
+
+  UNION ALL
+  
+  -- Overall WITH preference segment (treatment users who submitted preferences)
+  SELECT e.tag,
+         e.segments,
+         'overall_with_preference' as entity_segment,
+         COUNT(distinct e.dd_device_ID_filtered) as exposure_onboard,
+         COUNT(DISTINCT CASE WHEN is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) orders,
+         COUNT(DISTINCT CASE WHEN is_first_ordercart_DD = 1 AND is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) new_Cx,
+         COUNT(DISTINCT CASE WHEN is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) /  COUNT(DISTINCT e.dd_device_ID_filtered) order_rate,
+         COUNT(DISTINCT CASE WHEN is_first_ordercart_DD = 1 AND is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) /  COUNT(DISTINCT e.dd_device_ID_filtered) new_cx_rate,
+         SUM(variable_profit) AS variable_profit,
+         SUM(variable_profit) / COUNT(DISTINCT e.dd_device_ID_filtered) AS VP_per_device,
+         SUM(gov) AS gov,
+         SUM(gov) / COUNT(DISTINCT e.dd_device_ID_filtered) AS gov_per_device,
+         
+         -- Statistical variables for p-value calculation
+         STDDEV_SAMP(variable_profit) AS std_variable_profit,
+         STDDEV_SAMP(gov) AS std_gov,
+         COUNT(CASE WHEN is_filtered_core = 1 THEN o.delivery_ID END) AS n_orders_for_stats
+  FROM exposure e
+  INNER JOIN preferences_after_exposure pae
+    ON e.dd_device_ID_filtered = pae.dd_device_ID_filtered
+    AND e.consumer_id = pae.consumer_id
+  LEFT JOIN orders o
+      ON e.dd_device_ID_filtered = o.dd_device_ID_filtered 
+      AND e.day <= o.day
+  WHERE e.TAG NOT IN ('internal_test','reserved','control')
+    -- Only users with preference after exposure included via INNER JOIN
+  GROUP BY 1, 2, 3
   
   ORDER BY 1, 2, 3
 ),
@@ -156,6 +204,25 @@ MAU AS (
       --AND e.day <= o.day
       AND o.day BETWEEN DATEADD('day',-28,current_date) AND DATEADD('day',-1,current_date) -- past 28 days orders
   WHERE e.TAG NOT IN ('internal_test','reserved','control')  -- Exclude control from overall treatment
+  GROUP BY 1, 2, 3
+
+  UNION ALL
+  
+  -- Overall WITH preference segment
+  SELECT e.tag,
+         e.segments,
+         'overall_with_preference' as entity_segment,
+         COUNT(DISTINCT o.dd_device_ID_filtered) as MAU,
+         COUNT(DISTINCT o.dd_device_ID_filtered) / COUNT(DISTINCT e.dd_device_ID_filtered) as MAU_rate
+  FROM exposure e
+  INNER JOIN preferences_after_exposure pae
+    ON e.dd_device_ID_filtered = pae.dd_device_ID_filtered
+    AND e.consumer_id = pae.consumer_id
+  LEFT JOIN orders o
+      ON e.dd_device_ID_filtered = o.dd_device_ID_filtered 
+      AND o.day BETWEEN DATEADD('day',-28,current_date) AND DATEADD('day',-1,current_date) -- past 28 days orders
+  WHERE e.TAG NOT IN ('internal_test','reserved','control')
+    -- Only users with preference after exposure included via INNER JOIN
   GROUP BY 1, 2, 3
   
   ORDER BY 1, 2, 3
@@ -223,5 +290,51 @@ LEFT JOIN res r2
     ON r2.tag = 'control'
     AND r2.entity_segment = 'control_overall'  -- Control overall vs treatment entity segments
     AND r1.segments = r2.segments
-    AND r1.tag != 'control'  -- Only join treatment rows
-ORDER BY r1.entity_segment, r1.segments, r1.tag DESC;
+WHERE r1.tag != 'control'  -- Only include treatment rows
+  
+UNION ALL
+  
+-- Include control overall row for plotting exposure baselines
+SELECT r_control.tag,
+       r_control.segments,
+       r_control.entity_segment,
+       r_control.exposure_onboard AS exposure,
+       r_control.orders,
+       r_control.order_rate,
+       0 AS Lift_order_rate,
+       r_control.new_cx,
+       r_control.new_cx_rate,
+       0 AS Lift_new_cx_rate,
+       r_control.variable_profit,
+       0 AS Lift_VP,
+       r_control.VP_per_device,
+       0 AS Lift_VP_per_device,
+       r_control.gov,
+       0 AS Lift_gov,
+       r_control.gov_per_device,
+       0 AS Lift_gov_per_device,
+       r_control.mau,
+       r_control.mau_rate,
+       0 AS Lift_mau_rate,
+       r_control.std_variable_profit,
+       r_control.std_gov,
+       NULL AS control_order_rate,
+       NULL AS control_new_cx_rate,
+       NULL AS control_VP,
+       NULL AS control_VP_per_device,
+       NULL AS control_gov_per_device,
+       NULL AS control_mau_rate,
+       NULL AS control_variable_profit,
+       NULL AS control_gov,
+       NULL AS control_std_variable_profit,
+       NULL AS control_std_gov,
+       NULL AS control_n_orders,
+       NULL AS control_exposure,
+       NULL AS control_orders,
+       NULL AS control_new_cx,
+       NULL AS control_mau
+FROM res r_control
+WHERE r_control.tag = 'control'
+  AND r_control.entity_segment = 'control_overall'
+
+ORDER BY 3, 2;

@@ -8,7 +8,8 @@ create or replace table proddb.fionafan.preference_toggle_ice_latest as (
   SELECT *, 
     ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) as rn
   FROM IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE 
-  WHERE toggle_type = 'add' and page = 'onboarding_preference_page' 
+
+  WHERE toggle_type = 'add' and page = 'onboarding_preference_page' and iguazu_timestamp >= '2025-08-04'
   QUALIFY ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) = 1 
   )
   group by all
@@ -30,7 +31,7 @@ FROM proddb.public.fact_dedup_experiment_exposure ee
 WHERE experiment_name = 'cx_mobile_onboarding_preferences'
 AND ee.segment = 'iOS'
 AND experiment_version::INT = 1
-AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
+AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-04' AND '2025-09-30'
 GROUP BY 1,2,3,4,5
 
 );
@@ -108,7 +109,7 @@ WITH experiment_with_preferences AS (
     ON lower(ewp.dd_device_ID_filtered) = replace(lower(CASE WHEN events.dd_device_id like 'dx_%' then events.dd_device_id
                       else 'dx_'||events.dd_device_id end), '-') 
     AND events.timestamp > ewp.exposure_time
-    AND events.event_date >= '2025-08-18'  -- Filter events after 2025-08-18
+    AND events.event_date >= '2025-08-04'  -- Filter events after 2025-08-04
 ),
 ranked_events AS (
   SELECT 
@@ -117,6 +118,7 @@ ranked_events AS (
   FROM events_with_experiment
 )
 SELECT * FROM ranked_events);
+
 create or replace  table proddb.fionafan.preference_experiment_m_card_view as (
 
   WITH experiment_with_preferences AS (
@@ -217,7 +219,7 @@ case
 coalesce(list_filter, query, container_name) as detail, to_number(store_id) as store_id, store_name, store_type,  CONTEXT_TIMEZONE, CONTEXT_OS_VERSION, null as event_rank,
 cuisine_id, cuisine_name, container, container_name, container_id, container_description, page, item_id, item_card_position, item_name, card_position, badges, badges_text, cart_id, tile_name, tile_id, card_id, card_name, dd_delivery_correlation_id
  from iguazu.consumer.m_card_view
-where convert_timezone('UTC','America/Los_Angeles',received_at) >='2025-08-18'
+where convert_timezone('UTC','America/Los_Angeles',received_at) >='2025-08-04'
   and store_id is not null
   and item_name is null
   and item_id is null
@@ -283,11 +285,18 @@ INNER JOIN m_card_view_base events
   ON replace(lower(CASE WHEN events.dd_device_id like 'dx_%' then events.dd_device_id
                     else 'dx_'||events.dd_device_id end), '-') = ewp.dd_device_ID_filtered
   AND events.timestamp > ewp.effective_exposure_time
-  AND events.event_date >= '2025-08-18'  -- Filter events after 2025-08-18
+  AND events.event_date >= '2025-08-04'  -- Filter events after 2025-08-04
 );
 
 
-
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.preference_experiment_m_card_view group by all;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null  and discovery_surface = 'Home Page'  group by all;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null  and discovery_surface = 'Home Page' group by all;
+select discovery_feature, discovery_surface, tag, count(1) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null group by all order by all ;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.preference_first_session_analysis where if_exists_first_session = 1 group by all;
 
 -- Create table with order information for experiment preference events population
 -- Following the same pattern as the experiment analysis logic
@@ -323,8 +332,8 @@ CREATE OR REPLACE TABLE proddb.fionafan.experiment_preference_orders AS (
     JOIN dimension_deliveries dd
       ON a.order_cart_id = dd.order_cart_id
       AND dd.is_filtered_core = 1
-      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
+      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-04' AND '2025-09-30'
+    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-04' AND '2025-09-30'
   ),
   
   experiment_orders AS (
@@ -423,7 +432,8 @@ events_with_lag AS (
     event_timestamp,
     event_type,
     event,
-    discovery_feature,
+    discovery_feature,  
+    discovery_surface,
     store_id,
     store_name,
     action_rank,
@@ -451,6 +461,7 @@ events_with_sequential_sessions AS (
     event_type,
     event,
     discovery_feature,
+    discovery_surface,
     store_id,
     store_name,
     action_rank,
@@ -480,6 +491,7 @@ events_with_sequential_sessions AS (
     ess.event_type,
     ess.event,
     ess.discovery_feature,
+    ess.discovery_surface,
     ess.store_id,
     ess.store_name,
     ess.action_rank,
@@ -507,6 +519,7 @@ first_session_events AS (
     e.event_type,
     e.event,
     e.discovery_feature,
+    e.discovery_surface,
     e.store_id,
     e.store_name,
     e.action_rank,
@@ -577,10 +590,24 @@ first_session_events AS (
                        THEN 1 ELSE 0 END) = 1 
          THEN 1 ELSE 0 END AS if_place_order,
     
+    
+    
     -- Check if 'cuisine' appears in discovery_feature (case insensitive)
     CASE WHEN MAX(CASE WHEN LOWER(discovery_feature) LIKE '%cuisine%'
                        THEN 1 ELSE 0 END) = 1 
          THEN 1 ELSE 0 END AS if_cuisine_filter,
+    
+    -- Viewed a store card (any m_card_view with a store_id)
+    CASE WHEN MAX(CASE WHEN event = 'm_card_view' AND store_id IS NOT NULL
+                       THEN 1 ELSE 0 END) = 1
+         THEN 1 ELSE 0 END AS if_viewed_store,
+    
+    -- Used search (m_card_view on search surfaces/features)
+    CASE WHEN MAX(CASE WHEN event = 'm_card_view' AND (
+                           LOWER(discovery_surface) LIKE '%search%'
+                        OR LOWER(discovery_feature) LIKE '%search%')
+                       THEN 1 ELSE 0 END) = 1
+         THEN 1 ELSE 0 END AS if_used_search,
     
     -- Check if entity_ids overlap with store dimensions viewed
     CASE 
@@ -661,6 +688,8 @@ SELECT
   fs.if_exists_first_session,
   fs.if_place_order,
   fs.if_cuisine_filter,
+  fs.if_viewed_store,
+  fs.if_used_search,
   fs.if_entity_store_overlap,
   fs.entity_store_overlap_count,
   fs.total_events_first_session,
@@ -706,15 +735,22 @@ ORDER BY fs.exposure_time, fs.dd_device_ID_filtered
 SELECT 
   tag,
   COUNT(*) AS total_users,
-  
+  avg(if_exists_first_session) AS avg_if_exists_first_session,
+  avg(if_cuisine_filter) AS avg_if_cuisine_filter,
+  avg(if_viewed_store) AS avg_if_viewed_store,
+  avg(if_used_search) AS avg_if_used_search,
+  avg(if_place_order) AS avg_if_place_order,
+  avg(total_events_first_session) AS avg_total_events_first_session,
   -- First session order rates
   SUM(if_place_order) AS users_place_order_first_session,
   AVG(if_place_order) AS first_session_order_rate,
   
-  -- 24h order rates  
+  -- 24h order rates   
   SUM(order_placed_24h) AS users_ordered_24h,
   AVG(order_placed_24h) AS order_rate_24h,
+  avg(avg_gov_24h) as avg_gov_24h,
   
+  AVG(if_entity_store_overlap) AS preference_store_overlap_rate,
   -- Session length metrics
   AVG(first_session_duration_minutes) AS avg_session_length_minutes,
   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_session_duration_minutes) AS median_session_length_minutes,
@@ -724,6 +760,7 @@ SELECT
   AVG(total_events_first_session) AS avg_events_first_session,
   AVG(total_events_store_impression) AS avg_store_impressions_first_session
 FROM proddb.fionafan.preference_first_session_analysis
+where if_viewed_store = 1
 GROUP BY tag
 ORDER BY tag;
 
@@ -876,7 +913,7 @@ WITH base_overall_analysis AS (
     COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users
   FROM proddb.fionafan.preference_experiment_m_card_view pemcv
   LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
-  WHERE pemcv.event_date >= '2025-08-18'
+  WHERE pemcv.event_date >= '2025-08-04'
   GROUP BY
     CASE
       WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
@@ -924,7 +961,7 @@ WITH base_arm_analysis AS (
   FROM proddb.fionafan.preference_experiment_m_card_view pemcv
 
   LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
-  WHERE pemcv.event_date >= '2025-08-18'
+  WHERE pemcv.event_date >= '2025-08-04'
   GROUP BY ALL
 )
 SELECT
@@ -1011,8 +1048,8 @@ WITH carousel_base_analysis AS (
     COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users
   FROM proddb.fionafan.preference_experiment_m_card_view pemcv
   LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
-  WHERE pemcv.event_date >= '2025-08-18'
-    AND pemcv.container = 'carousel'  -- FILTER FOR CAROUSEL ONLY
+  WHERE pemcv.event_date >= '2025-08-04'
+    AND pemcv.container in ('carousel', 'cluster', 'list')  -- FILTER FOR CAROUSEL ONLY
   GROUP BY
     CASE
       WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
@@ -1113,37 +1150,72 @@ SELECT
   MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN events_per_user END) AS events_per_user_treatment_overall
 
 FROM carousel_combined
+
 GROUP BY detail
-ORDER BY
-  -- Order by total control events to see most popular categories first
-  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN total_events END) DESC NULLS LAST;
+having total_events_match > 0
+ORDER BY total_events_match desc;
+
 
 -- ===============================================================================================
--- DETAILED BREAKDOWN BY CONTAINER AND EVENT TYPE
--- ===============================================================================================
+-- LIFT BY DISCOVERY FEATURE AND SURFACE (TREATMENT VS CONTROL)
+-- -----------------------------------------------------------------------------------------------
+-- Output columns:
+--   discovery_feature, discovery_surface, treatment_val, control_val, lift, overall_users_with_view
+-- Definitions:
+--   - Users with view: distinct dd_device_ID_filtered with at least one m_card_view for the pair
+--   - Rate per arm: users_with_view / total users in that arm (from experiment_preference_events)
+--   - Lift: treatment_val / control_val - 1
+--   - Ordered by overall volume = control_users_with_view + treatment_users_with_view
+WITH users_per_tag AS (
+  SELECT 
+    tag,
+    COUNT(DISTINCT dd_device_ID_filtered) AS total_users
+  FROM proddb.fionafan.experiment_preference_events
+  GROUP BY all
+),
+feature_views AS (
+  SELECT 
+    LOWER(discovery_feature) AS discovery_feature,
+    LOWER(discovery_surface) AS discovery_surface,
+    tag,
+    COUNT(DISTINCT dd_device_ID_filtered) AS users_with_view
+  FROM proddb.fionafan.experiment_preference_events
+  WHERE event = 'm_card_view'
+    AND store_id IS NOT NULL
+  GROUP BY all
+),
+feature_rates AS (
+  SELECT 
+    fv.discovery_feature,
+    fv.discovery_surface,
+    fv.tag,
+    fv.users_with_view,
+    up.total_users,
+    fv.users_with_view * 1.0 / NULLIF(up.total_users, 0) AS rate
+  FROM feature_views fv
+  JOIN users_per_tag up ON fv.tag = up.tag
+),
+pivoted AS (
+  SELECT 
+    discovery_feature,
+    discovery_surface,
+    MAX(CASE WHEN tag = 'control' THEN rate END) AS control_val,
+    MAX(CASE WHEN tag <> 'control' THEN rate END) AS treatment_val,
+    MAX(CASE WHEN tag = 'control' THEN users_with_view END) AS control_users_with_view,
+    MAX(CASE WHEN tag <> 'control' THEN users_with_view END) AS treatment_users_with_view
+  FROM feature_rates
+  GROUP BY all
+)
+SELECT 
+  discovery_feature,
+  discovery_surface,
+  treatment_val,
+  control_val,
+  treatment_val / NULLIF(control_val, 0) - 1 AS lift,
+  COALESCE(control_users_with_view, 0) + COALESCE(treatment_users_with_view, 0) AS overall_users_with_view
+FROM pivoted
+ORDER BY overall_users_with_view DESC;
 
-SELECT
-  experimental_arm,
-  container,
-  event_type,
-  total_events,
-  avg_position,
-  unique_users,
-  events_per_user,
-  -- Calculate percentages within each arm
-  ROUND(total_events * 100.0 / SUM(total_events) OVER (PARTITION BY experimental_arm), 2) AS pct_of_arm_events,
-  ROUND(total_events * 100.0 / SUM(total_events) OVER (PARTITION BY experimental_arm, container), 2) AS pct_of_container_events
-FROM arm_analysis
-ORDER BY
-  CASE experimental_arm
-    WHEN 'Control - No Preferences' THEN 1
-    WHEN 'Treatment - Expressed Match' THEN 2
-    WHEN 'Treatment - Expressed No Match' THEN 3
-    WHEN 'Treatment - No Expression' THEN 4
-    ELSE 5
-  END,
-  container,
-  event_type,
-  total_events DESC;
+
 
 
