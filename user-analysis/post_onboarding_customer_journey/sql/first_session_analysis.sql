@@ -1142,15 +1142,19 @@ SELECT
   MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN unique_users END) AS unique_users_no_expr,
   MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN unique_users END) AS unique_users_treatment_overall,
 
-  -- EVENTS PER USER by arm
-  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN events_per_user END) AS events_per_user_control,
-  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN events_per_user END) AS events_per_user_match,
-  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN events_per_user END) AS events_per_user_no_match,
-  MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN events_per_user END) AS events_per_user_no_expr,
-  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN events_per_user END) AS events_per_user_treatment_overall
+  -- -- EVENTS PER USER by arm
+  -- MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN events_per_user END) AS events_per_user_control,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN events_per_user END) AS events_per_user_match,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN events_per_user END) AS events_per_user_no_match,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN events_per_user END) AS events_per_user_no_expr,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN events_per_user END) AS events_per_user_treatment_overall
 
 FROM carousel_combined
-
+-- where LOWER(detail) IN (
+--   'fast-food','burger','pizza','mexican','chicken','chinese','sandwich','asian',
+--   'dessert','breakfast','italian','comfort-food','steak','healthy','sushi',
+--   'seafood','coffee','thai','soup','indian','dineout'
+-- )
 GROUP BY detail
 having total_events_match > 0
 ORDER BY total_events_match desc;
