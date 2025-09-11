@@ -8,7 +8,8 @@ create or replace table proddb.fionafan.preference_toggle_ice_latest as (
   SELECT *, 
     ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) as rn
   FROM IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE 
-  WHERE toggle_type = 'add' and page = 'onboarding_preference_page' 
+
+  WHERE toggle_type = 'add' and page = 'onboarding_preference_page' and iguazu_timestamp >= '2025-08-04'
   QUALIFY ROW_NUMBER() OVER (PARTITION BY consumer_id, entity_id ORDER BY iguazu_event_time DESC) = 1 
   )
   group by all
@@ -30,10 +31,11 @@ FROM proddb.public.fact_dedup_experiment_exposure ee
 WHERE experiment_name = 'cx_mobile_onboarding_preferences'
 AND ee.segment = 'iOS'
 AND experiment_version::INT = 1
-AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
+AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-04' AND '2025-09-30'
 GROUP BY 1,2,3,4,5
 
 );
+
 
 -- First session analysis: Analyze first session behavior within 24h of effective exposure
 -- Create sequential session numbering (1,2,3,4...) and filter for first session
@@ -85,7 +87,7 @@ WITH experiment_with_preferences AS (
     events.session_num,
     events.platform,
     events.timestamp AS event_timestamp,
-    events.event_type,
+    events.event AS event_type,
     events.event,
     events.discovery_surface,
     events.discovery_feature,
@@ -107,7 +109,7 @@ WITH experiment_with_preferences AS (
     ON lower(ewp.dd_device_ID_filtered) = replace(lower(CASE WHEN events.dd_device_id like 'dx_%' then events.dd_device_id
                       else 'dx_'||events.dd_device_id end), '-') 
     AND events.timestamp > ewp.exposure_time
-    AND events.event_date >= '2025-08-18'  -- Filter events after 2025-08-18
+    AND events.event_date >= '2025-08-04'  -- Filter events after 2025-08-04
 ),
 ranked_events AS (
   SELECT 
@@ -117,6 +119,184 @@ ranked_events AS (
 )
 SELECT * FROM ranked_events);
 
+create or replace  table proddb.fionafan.preference_experiment_m_card_view as (
+
+  WITH experiment_with_preferences AS (
+  SELECT 
+    exp.tag,
+    exp.result,
+    exp.bucket_key,
+    exp.user_id,
+    exp.dd_device_ID_filtered,
+    exp.segment,
+    exp.day,
+    exp.exposure_time,
+    -- Include entity_ids for treatment users, null for control
+    CASE 
+      WHEN exp.tag <> 'control' THEN pref.entity_ids 
+      ELSE NULL 
+    END AS entity_ids,
+    -- Calculate effective exposure time
+    CASE 
+      WHEN exp.tag <> 'control' AND pref.max_event_time IS NOT NULL 
+        THEN GREATEST(exp.exposure_time, pref.max_event_time)
+      ELSE exp.exposure_time 
+    END AS effective_exposure_time,
+    pref.consumer_id,
+    pref.max_event_time AS preference_time
+  FROM proddb.fionafan.preference_experiment_data exp
+
+  LEFT JOIN proddb.fionafan.preference_toggle_ice_latest pref
+
+
+    ON exp.dd_device_ID_filtered = replace(lower(CASE WHEN pref.dd_device_id like 'dx_%' then pref.dd_device_id
+                    else 'dx_'||pref.dd_device_id end), '-')
+)
+, m_card_view_base as (
+select convert_timezone('UTC','America/Los_Angeles',received_at)::date as event_date, context_device_type as platform, user_id,consumer_id, dd_device_id, convert_timezone('UTC','America/Los_Angeles',timestamp) timestamp
+, 'store_impression' as event_type ,event,
+
+case
+    when page like 'post_checkout%' then 'DoubleDash'
+    when page in ('explore_page','homepage') then 'Home Page'
+    when page = 'vertical_page' then 'Vertical Page'
+    when page ilike ('grocery_tab%') then 'Grocery Tab'
+    when page ilike ('retail_tab%') then 'Retail Tab'
+    when page = 'vertical_search_page' then 'Vertical Search'
+    when page in ('search_autocomplete','search_results') then 'Search Tab'
+    when page = 'saved_stores_page' then 'Saved Stores Page'
+    when page = 'pickup' then 'Pickup Tab'
+    when page IN ('deals_hub_list', 'offers_hub', 'offers_list') then 'Offers Tab'
+    -- when container in('store','list') AND page in ('collection_page_list','collection_landing_page') AND tile_name IS NOT NULL then 'Landing Page'
+    when page in ('collection_page_list','collection_landing_page') then 'Landing Page'
+    when container = 'banner_carousel' then 'Home Page'
+    when page ILIKE 'post_checkout%' then 'DoubleDash'
+    when page = 'all_reviews' then 'All Reviews Page'
+    when page = 'order_history' then 'Order History Tab' -- this is broken for iOS
+    when page = 'browse_page' then 'Browse Tab'
+    when page = 'open_carts_page' then 'Open Carts Page'
+    when page = 'cuisine_see_all_page' then 'Cuisine See All Page'
+    when page = 'checkout_aisle' then 'Checkout Aisle Page'
+    -- when page = 'cuisine_filter_search_result' then 'Cuisine Search'
+    -- when container = 'cluster' then 'Other Pages'
+    else 'Other'--page
+  end as discovery_surface,
+
+  case
+    when page ILIKE 'post_checkout%' then 'DoubleDash'
+    when page = 'all_reviews' then 'Reviews'
+    when container = 'collection' AND page in ('explore_page', 'vertical_page') AND tile_name IS NOT NULL then 'Collection Carousel Landing Page'
+    when page = 'vertical_page' and container = 'cluster' then 'Traditional Carousel'
+    when page = 'vertical_search_page' then 'Vertical Search'
+    when page in ('search_autocomplete') then 'Autocomplete'
+    when page in ('search_results') then 'Core Search'
+    when page = 'saved_stores_page' then 'Saved Stores'
+    when page = 'pickup' then 'Pickup'
+    when page IN ('deals_hub_list', 'offers_hub', 'offers_list') then 'Offers'
+    when container in('store','list') AND page in ('collection_page_list','collection_landing_page') AND tile_name IS NOT NULL then 'Collection Carousel Landing Page'
+    when container in('store','list') AND page in ('collection_page_list','collection_landing_page') then 'Traditional Carousel Landing Page'
+    when container = 'cluster' then 'Traditional Carousel'
+    when container = 'banner_carousel' then 'Banner'
+    when container IN ('store', 'list', 'item:go-to-store') AND page IN ('explore_page', 'vertical_page','cuisine_see_all_page') AND list_filter ilike '%cuisine:%' then 'Cuisine Filter'
+    when container in('store','list') AND page IN ('explore_page', 'vertical_page') AND list_filter IS NOT NULL then 'Pill Filter'
+    when container in('store','list') AND page IN ('explore_page', 'vertical_page') then 'Home Feed'
+    when container = 'announcement' AND page IN ('explore_page', 'vertical_page') then 'Announcement'
+    when page = 'explore_page' AND container = 'carousel' AND lower(carousel_name) = 'cuisines' then 'Entry Point - Cuisine Filter'
+    when page = 'explore_page' AND container = 'carousel' AND carousel_name = 'Verticals' then 'Entry Point - Vertical Nav'
+    when page = 'order_history' then 'Order History'
+    when container ilike 'collection_standard_%'then 'Traditional Carousel'
+    when page in ('grocery_tab') and container = 'grid' then 'Grocery Tab - Grid'
+    when page in ('retail_tab') and container = 'grid' then 'Retail Tab - Grid'
+    when page in ('grocery_tab') and container IN ('store', 'list', 'item:go-to-store') then 'Grocery Tab - Feed'
+    when page in ('retail_tab') and container IN ('store', 'list', 'item:go-to-store') then 'Retail Tab - Feed'
+    when page in ('grocery_tab_see_all_page') then 'Grocery Tab - See All Page'
+    when page in ('retail_tab_see_all_page') then 'Retail Tab - See All Page'
+    when page = 'browse_page' and container in('store','list', 'item:go-to-store') and query is not null then 'Browse Tab - Search'
+    when page = 'open_carts_page' then 'Open Carts Page'
+    else 'Other'--container
+  end as discovery_feature,
+
+coalesce(list_filter, query, container_name) as detail, to_number(store_id) as store_id, store_name, store_type,  CONTEXT_TIMEZONE, CONTEXT_OS_VERSION, null as event_rank,
+cuisine_id, cuisine_name, container, container_name, container_id, container_description, page, item_id, item_card_position, item_name, card_position, badges, badges_text, cart_id, tile_name, tile_id, card_id, card_name, dd_delivery_correlation_id
+ from iguazu.consumer.m_card_view
+where convert_timezone('UTC','America/Los_Angeles',received_at) >='2025-08-04'
+  and store_id is not null
+  and item_name is null
+  and item_id is null
+  and page != 'store' -- Explicitly exclude Store page as a catch-all
+  -- and page not like 'post_checkout%' -- Explicitly exclude DbD pages as a catch-all
+//  and context_device_type = 'ios'
+and ((page != 'order_history' and context_device_type = 'ios') or context_device_type = 'android')-- since order_history impressions are broken on ios. We launch impressions after a order for some reason adn triple fire them.
+)
+
+SELECT 
+  -- Experiment data
+  ewp.tag,
+  ewp.result,
+  ewp.bucket_key,
+  ewp.dd_device_ID_filtered,
+  ewp.segment,
+  ewp.day,
+  ewp.exposure_time,
+  ewp.entity_ids,
+  ewp.effective_exposure_time,
+  ewp.consumer_id AS exp_consumer_id,  -- Rename to avoid conflict
+  ewp.preference_time,
+  
+  -- Event data
+  events.event_date,
+  events.platform,
+  events.user_id,
+  events.consumer_id AS event_consumer_id,  -- Rename to avoid conflict
+  events.dd_device_id,
+  events.timestamp AS event_timestamp,
+  events.event_type,
+  events.event,
+  events.discovery_surface,
+  events.discovery_feature,
+  events.detail,
+  events.store_id,
+  events.store_name,
+  events.store_type,
+  events.CONTEXT_TIMEZONE,
+  events.CONTEXT_OS_VERSION,
+  events.event_rank,
+  events.cuisine_id,
+  events.cuisine_name,
+  events.container,
+  events.container_name,
+  events.container_id,
+  events.container_description,
+  events.page,
+  events.item_id,
+  events.item_card_position,
+  events.item_name,
+  events.card_position,
+  events.badges,
+  events.badges_text,
+  events.cart_id,
+  events.tile_name,
+  events.tile_id,
+  events.card_id,
+  events.card_name,
+  events.dd_delivery_correlation_id
+FROM experiment_with_preferences ewp
+INNER JOIN m_card_view_base events
+  ON replace(lower(CASE WHEN events.dd_device_id like 'dx_%' then events.dd_device_id
+                    else 'dx_'||events.dd_device_id end), '-') = ewp.dd_device_ID_filtered
+  AND events.timestamp > ewp.effective_exposure_time
+  AND events.event_date >= '2025-08-04'  -- Filter events after 2025-08-04
+);
+
+
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.preference_experiment_m_card_view group by all;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null  and discovery_surface = 'Home Page'  group by all;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null  and discovery_surface = 'Home Page' group by all;
+select discovery_feature, discovery_surface, tag, count(1) from proddb.fionafan.experiment_preference_events 
+where event='m_card_view' and store_id is not null group by all order by all ;
+select tag, count(distinct dd_device_ID_filtered) from proddb.fionafan.preference_first_session_analysis where if_exists_first_session = 1 group by all;
 
 -- Create table with order information for experiment preference events population
 -- Following the same pattern as the experiment analysis logic
@@ -152,8 +332,8 @@ CREATE OR REPLACE TABLE proddb.fionafan.experiment_preference_orders AS (
     JOIN dimension_deliveries dd
       ON a.order_cart_id = dd.order_cart_id
       AND dd.is_filtered_core = 1
-      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
+      AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-04' AND '2025-09-30'
+    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-04' AND '2025-09-30'
   ),
   
   experiment_orders AS (
@@ -225,8 +405,7 @@ group by all;
 -- group by all
 -- having ses>2 limit 10
 -- ;
-select count(1), sum(case when store_id_list <>'' then 1 else 0 end) from proddb.fionafan.preference_first_session_analysis where entity_ids<>'null' and entity_ids is not null;
-select count(1) from proddb.fionafan.preference_first_session_analysis where tag= 'treatment';
+
 create or replace table proddb.fionafan.preference_first_session_analysis as (
 WITH all_experiment_users AS (
   SELECT DISTINCT
@@ -253,7 +432,8 @@ events_with_lag AS (
     event_timestamp,
     event_type,
     event,
-    discovery_feature,
+    discovery_feature,  
+    discovery_surface,
     store_id,
     store_name,
     action_rank,
@@ -281,6 +461,7 @@ events_with_sequential_sessions AS (
     event_type,
     event,
     discovery_feature,
+    discovery_surface,
     store_id,
     store_name,
     action_rank,
@@ -310,6 +491,7 @@ events_with_sequential_sessions AS (
     ess.event_type,
     ess.event,
     ess.discovery_feature,
+    ess.discovery_surface,
     ess.store_id,
     ess.store_name,
     ess.action_rank,
@@ -337,6 +519,7 @@ first_session_events AS (
     e.event_type,
     e.event,
     e.discovery_feature,
+    e.discovery_surface,
     e.store_id,
     e.store_name,
     e.action_rank,
@@ -407,10 +590,24 @@ first_session_events AS (
                        THEN 1 ELSE 0 END) = 1 
          THEN 1 ELSE 0 END AS if_place_order,
     
+    
+    
     -- Check if 'cuisine' appears in discovery_feature (case insensitive)
     CASE WHEN MAX(CASE WHEN LOWER(discovery_feature) LIKE '%cuisine%'
                        THEN 1 ELSE 0 END) = 1 
          THEN 1 ELSE 0 END AS if_cuisine_filter,
+    
+    -- Viewed a store card (any m_card_view with a store_id)
+    CASE WHEN MAX(CASE WHEN event = 'm_card_view' AND store_id IS NOT NULL
+                       THEN 1 ELSE 0 END) = 1
+         THEN 1 ELSE 0 END AS if_viewed_store,
+    
+    -- Used search (m_card_view on search surfaces/features)
+    CASE WHEN MAX(CASE WHEN event = 'm_card_view' AND (
+                           LOWER(discovery_surface) LIKE '%search%'
+                        OR LOWER(discovery_feature) LIKE '%search%')
+                       THEN 1 ELSE 0 END) = 1
+         THEN 1 ELSE 0 END AS if_used_search,
     
     -- Check if entity_ids overlap with store dimensions viewed
     CASE 
@@ -491,6 +688,8 @@ SELECT
   fs.if_exists_first_session,
   fs.if_place_order,
   fs.if_cuisine_filter,
+  fs.if_viewed_store,
+  fs.if_used_search,
   fs.if_entity_store_overlap,
   fs.entity_store_overlap_count,
   fs.total_events_first_session,
@@ -521,29 +720,37 @@ LEFT JOIN order_metrics_24h om
 ORDER BY fs.exposure_time, fs.dd_device_ID_filtered
 );
 
-select count(1), sum(if_place_order), sum(if_cuisine_filter), sum(order_placed_24h)
-, sum(case when if_place_order  <> order_placed_24h then 1 else 0 end) 
-, sum(case when if_place_order = 1 and  order_placed_24h = 0 then 1 else 0 end) 
-, count(case when primary_category_name_list is not null then 1 end) as users_with_category_data
-, count(case when cuisine_type_list is not null then 1 end) as users_with_cuisine_data
-, sum(if_entity_store_overlap) as users_with_preference_store_overlap
-, sum(entity_store_overlap_count) as total_preference_store_impression_overlaps
-, count(case when entity_ids is not null then 1 end) as treatment_users_count
-from proddb.fionafan.preference_first_session_analysis;
+-- select tag, count(1), sum(if_place_order), sum(if_cuisine_filter), sum(order_placed_24h)
+-- , sum(case when if_place_order  <> order_placed_24h then 1 else 0 end) 
+-- , sum(case when if_place_order = 1 and  order_placed_24h = 0 then 1 else 0 end) 
+-- , count(case when primary_category_name_list is not null then 1 end) as users_with_category_data
+-- , count(case when cuisine_type_list is not null then 1 end) as users_with_cuisine_data
+-- , sum(if_entity_store_overlap) as users_with_preference_store_overlap
+-- , sum(entity_store_overlap_count) as total_preference_store_impression_overlaps
+-- , count(case when entity_ids is not null then 1 end) as treatment_users_count
+-- from proddb.fionafan.preference_first_session_analysis
+-- group by all;
 
 -- Overall comparison: Treatment vs Control order rates
 SELECT 
   tag,
   COUNT(*) AS total_users,
-  
+  avg(if_exists_first_session) AS avg_if_exists_first_session,
+  avg(if_cuisine_filter) AS avg_if_cuisine_filter,
+  avg(if_viewed_store) AS avg_if_viewed_store,
+  avg(if_used_search) AS avg_if_used_search,
+  avg(if_place_order) AS avg_if_place_order,
+  avg(total_events_first_session) AS avg_total_events_first_session,
   -- First session order rates
   SUM(if_place_order) AS users_place_order_first_session,
   AVG(if_place_order) AS first_session_order_rate,
   
-  -- 24h order rates  
+  -- 24h order rates   
   SUM(order_placed_24h) AS users_ordered_24h,
   AVG(order_placed_24h) AS order_rate_24h,
+  avg(avg_gov_24h) as avg_gov_24h,
   
+  AVG(if_entity_store_overlap) AS preference_store_overlap_rate,
   -- Session length metrics
   AVG(first_session_duration_minutes) AS avg_session_length_minutes,
   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_session_duration_minutes) AS median_session_length_minutes,
@@ -553,6 +760,7 @@ SELECT
   AVG(total_events_first_session) AS avg_events_first_session,
   AVG(total_events_store_impression) AS avg_store_impressions_first_session
 FROM proddb.fionafan.preference_first_session_analysis
+where if_viewed_store = 1
 GROUP BY tag
 ORDER BY tag;
 
@@ -598,9 +806,9 @@ ORDER BY entity_count_group;
 
 SELECT 
   tag,
-  
+  case when if_entity_store_overlap > 0 then 'preferenece_overlap' else 'no_overlap' end as preference_store_overlap_group,
   COUNT(*) AS total_users,
-  -- avg(if_exists_first_session) AS avg_if_exists_first_session,
+  avg(if_exists_first_session) AS avg_if_exists_first_session,
   avg(if_cuisine_filter) AS avg_if_cuisine_filter,
   avg(if_place_order) AS avg_if_place_order,
   avg(total_events_first_session) AS avg_total_events_first_session,
@@ -614,7 +822,7 @@ SELECT
   
   -- Session length metrics
   AVG(first_session_duration_minutes) AS avg_session_length_minutes,
-  PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_session_duration_minutes) AS median_session_length_minutes,
+  -- PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_session_duration_minutes) AS median_session_length_minutes,
   
   -- Preference-store overlap metrics (for treatment only)
   AVG(if_entity_store_overlap) AS preference_store_overlap_rate,
@@ -624,6 +832,394 @@ SELECT
   AVG(total_events_store_impression) AS avg_store_impressions_first_session
   
 FROM proddb.fionafan.preference_first_session_analysis
-where if_exists_first_session=1
-GROUP BY 
+where entity_ids is not null
+-- where if_exists_first_session=1
+GROUP BY
 all;
+
+-- ===============================================================================================
+-- PREFERENCE-STORE MATCH ANALYSIS
+-- ===============================================================================================
+
+-- SIMPLIFIED: Combined treatment and control analysis using optimized table
+SELECT
+  CASE
+    WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+    WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+         AND (
+           LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_category_name) || '%' AND ds.primary_category_name IS NOT NULL
+           OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_tag_name) || '%' AND ds.primary_tag_name IS NOT NULL
+           OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.cuisine_type) || '%' AND ds.cuisine_type IS NOT NULL
+         ) THEN 'Treatment - Expressed Match'
+    WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+         THEN 'Treatment - Expressed No Match'
+    WHEN pemcv.tag <> 'control' AND (pemcv.entity_ids IS NULL OR pemcv.entity_ids = '')
+         THEN 'Treatment - No Expression'
+    ELSE 'Other'
+  END AS group_type,
+
+  pemcv.container,
+  CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END AS event_type,
+  COUNT(*) AS total_events,
+  ROUND(AVG(pemcv.card_position), 2) AS avg_position,
+  COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users,
+  ROUND(COUNT(*) * 1.0 / COUNT(DISTINCT pemcv.dd_device_ID_filtered), 2) AS events_per_user
+
+FROM proddb.fionafan.preference_experiment_m_card_view pemcv
+LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
+
+WHERE
+-- Include all users for complete 4-arm analysis
+1=1
+
+GROUP BY
+  CASE
+    WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+    WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+         AND (
+           LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_category_name) || '%' AND ds.primary_category_name IS NOT NULL
+           OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_tag_name) || '%' AND ds.primary_tag_name IS NOT NULL
+           OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.cuisine_type) || '%' AND ds.cuisine_type IS NOT NULL
+         ) THEN 'Treatment - Expressed Match'
+    WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+         THEN 'Treatment - Expressed No Match'
+    WHEN pemcv.tag <> 'control' AND (pemcv.entity_ids IS NULL OR pemcv.entity_ids = '')
+         THEN 'Treatment - No Expression'
+    ELSE 'Other'
+  END,
+  pemcv.container,
+  CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END
+
+ORDER BY group_type, container, event_type, total_events DESC;
+
+
+-- ===============================================================================================
+-- BREAKDOWN BY CONTAINER: 4-ARM COMPARISON FOR EACH CONTAINER
+-- ===============================================================================================
+
+-- CREATE TEMPORARY TABLE FOR OVERALL ANALYSIS (Control + Treatment Overall)
+CREATE OR REPLACE TEMPORARY TABLE arm_analysis_temp_overall AS
+WITH base_overall_analysis AS (
+  SELECT
+    CASE
+      WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+      WHEN pemcv.tag <> 'control' THEN 'Treatment Overall'
+      ELSE 'Other'
+    END AS experimental_arm,
+    pemcv.container,
+    CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END AS event_type,
+    COUNT(*) AS total_events,
+    ROUND(AVG(pemcv.card_position), 2) AS avg_position,
+    COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users
+  FROM proddb.fionafan.preference_experiment_m_card_view pemcv
+  LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
+  WHERE pemcv.event_date >= '2025-08-04'
+  GROUP BY
+    CASE
+      WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+      WHEN pemcv.tag <> 'control' THEN 'Treatment Overall'
+      ELSE 'Other'
+    END,
+    pemcv.container,
+    CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END
+)
+SELECT
+  experimental_arm,
+  container,
+  event_type,
+  SUM(total_events) AS total_events,
+  ROUND(AVG(avg_position), 2) AS avg_position,
+  SUM(unique_users) AS unique_users
+FROM base_overall_analysis
+WHERE experimental_arm IN ('Control - No Preferences', 'Treatment Overall')
+GROUP BY experimental_arm, container, event_type;
+
+-- CREATE A TEMPORARY TABLE WITH ARM ANALYSIS FIRST (since CTE scope is limited)
+CREATE OR REPLACE TEMPORARY TABLE arm_analysis_temp AS
+WITH base_arm_analysis AS (
+  SELECT
+    CASE
+      WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> '' AND (
+        LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_category_name) || '%' AND ds.primary_category_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_tag_name) || '%' AND ds.primary_tag_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.cuisine_type) || '%' AND ds.cuisine_type IS NOT NULL
+      ) THEN 'Treatment - Expressed Match'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+      THEN 'Treatment - Expressed No Match'
+      WHEN pemcv.tag <> 'control' AND (pemcv.entity_ids IS NULL OR pemcv.entity_ids = '')
+      THEN 'Treatment - No Expression'
+      ELSE 'Other'
+    END AS experimental_arm,
+    pemcv.container,
+    CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END AS event_type,
+    -- ADD DETAIL COLUMN - could be store category, card type, or other granularity
+    COALESCE(ds.primary_category_name, 'Unknown') AS detail,
+    COUNT(*) AS total_events,
+    ROUND(AVG(pemcv.card_position), 2) AS avg_position,
+    COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users
+  FROM proddb.fionafan.preference_experiment_m_card_view pemcv
+
+  LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
+  WHERE pemcv.event_date >= '2025-08-04'
+  GROUP BY ALL
+)
+SELECT
+  experimental_arm,
+  container,
+  event_type,
+  detail,
+  SUM(total_events) AS total_events,
+  ROUND(AVG(avg_position), 2) AS avg_position,
+  SUM(unique_users) AS unique_users
+FROM base_arm_analysis
+GROUP BY experimental_arm, container, event_type, detail;
+
+
+-- ===============================================================================================
+-- CONTAINER BREAKDOWN: CONTROL + TREATMENT OVERALL SIDE-BY-SIDE FOR EACH CONTAINER
+-- ===============================================================================================
+
+-- NOW DO THE CONTAINER BREAKDOWN ANALYSIS
+WITH arm_container_metrics AS (
+  SELECT
+    experimental_arm,
+    container,
+    SUM(total_events) AS total_events,
+    ROUND(AVG(avg_position), 2) AS avg_position,
+    SUM(unique_users) AS unique_users,
+    ROUND(SUM(total_events) * 1.0 / SUM(unique_users), 2) AS events_per_user
+  FROM arm_analysis_temp_overall
+  GROUP BY experimental_arm, container
+)
+
+-- PIVOT BY CONTAINER: Show each container with metrics grouped by type (Control + Treatment Overall)
+SELECT
+  container,
+
+  -- TOTAL EVENTS by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN total_events END) AS total_events_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN total_events END) AS total_events_treatment_overall,
+
+  -- AVERAGE POSITION by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN avg_position END) AS avg_position_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN avg_position END) AS avg_position_treatment_overall,
+
+  -- UNIQUE USERS by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN unique_users END) AS unique_users_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN unique_users END) AS unique_users_treatment_overall,
+
+  -- EVENTS PER USER by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN events_per_user END) AS events_per_user_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN events_per_user END) AS events_per_user_treatment_overall
+
+FROM arm_container_metrics
+GROUP BY container
+ORDER BY
+  -- Order by total control events to see most popular containers first
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN total_events END) DESC NULLS LAST;
+
+-- ===============================================================================================
+-- CAROUSEL DETAIL BREAKDOWN: CREATE SEPARATE TEMP TABLE
+-- ===============================================================================================
+
+-- CREATE SEPARATE TEMP TABLE FOR CAROUSEL DETAIL ANALYSIS
+CREATE OR REPLACE TEMPORARY TABLE carousel_detail_analysis AS
+WITH carousel_base_analysis AS (
+  SELECT
+    CASE
+      WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> '' AND (
+        LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_category_name) || '%' AND ds.primary_category_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_tag_name) || '%' AND ds.primary_tag_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.cuisine_type) || '%' AND ds.cuisine_type IS NOT NULL
+      ) THEN 'Treatment - Expressed Match'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+      THEN 'Treatment - Expressed No Match'
+      WHEN pemcv.tag <> 'control' AND (pemcv.entity_ids IS NULL OR pemcv.entity_ids = '')
+      THEN 'Treatment - No Expression'
+      ELSE 'Other'
+    END AS experimental_arm,
+    pemcv.container,
+    CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END AS event_type,
+    COALESCE(ds.primary_category_name, 'Unknown') AS detail,
+    COUNT(*) AS total_events,
+    ROUND(AVG(pemcv.card_position), 2) AS avg_position,
+    COUNT(DISTINCT pemcv.dd_device_ID_filtered) AS unique_users
+  FROM proddb.fionafan.preference_experiment_m_card_view pemcv
+  LEFT JOIN edw.merchant.dimension_store ds ON pemcv.store_id = ds.store_id
+  WHERE pemcv.event_date >= '2025-08-04'
+    AND pemcv.container in ('carousel', 'cluster', 'list')  -- FILTER FOR CAROUSEL ONLY
+  GROUP BY
+    CASE
+      WHEN pemcv.tag = 'control' THEN 'Control - No Preferences'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> '' AND (
+        LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_category_name) || '%' AND ds.primary_category_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.primary_tag_name) || '%' AND ds.primary_tag_name IS NOT NULL
+        OR LOWER(pemcv.entity_ids) LIKE '%' || LOWER(ds.cuisine_type) || '%' AND ds.cuisine_type IS NOT NULL
+      ) THEN 'Treatment - Expressed Match'
+      WHEN pemcv.tag <> 'control' AND pemcv.entity_ids IS NOT NULL AND pemcv.entity_ids <> ''
+      THEN 'Treatment - Expressed No Match'
+      WHEN pemcv.tag <> 'control' AND (pemcv.entity_ids IS NULL OR pemcv.entity_ids = '')
+      THEN 'Treatment - No Expression'
+      ELSE 'Other'
+    END,
+    pemcv.container,
+    CASE WHEN pemcv.event_type = 'store_impression' THEN 'impression' ELSE pemcv.event_type END,
+    COALESCE(ds.primary_category_name, 'Unknown')
+)
+SELECT
+  experimental_arm,
+  container,
+  event_type,
+  detail,
+  SUM(total_events) AS total_events,
+  ROUND(AVG(avg_position), 2) AS avg_position,
+  SUM(unique_users) AS unique_users
+FROM carousel_base_analysis
+GROUP BY experimental_arm, container, event_type, detail;
+
+-- ===============================================================================================
+-- CAROUSEL BREAKDOWN: FOUR INDIVIDUAL ARMS + TREATMENT OVERALL SIDE-BY-SIDE BY DETAIL CATEGORY
+-- ===============================================================================================
+
+-- First, create the four individual arms analysis
+WITH carousel_four_arms AS (
+  SELECT
+    experimental_arm,
+    detail,
+    SUM(total_events) AS total_events,
+    ROUND(AVG(avg_position), 2) AS avg_position,
+    SUM(unique_users) AS unique_users,
+    ROUND(SUM(total_events) * 1.0 / NULLIF(SUM(unique_users), 0), 2) AS events_per_user
+  FROM carousel_detail_analysis
+  GROUP BY experimental_arm, detail
+),
+
+-- Second, create treatment overall by aggregating all treatment arms
+carousel_treatment_overall AS (
+  SELECT
+    'Treatment Overall' AS experimental_arm,
+    detail,
+    SUM(total_events) AS total_events,
+    ROUND(AVG(avg_position), 2) AS avg_position,
+    SUM(unique_users) AS unique_users,
+    ROUND(SUM(total_events) * 1.0 / NULLIF(SUM(unique_users), 0), 2) AS events_per_user
+  FROM carousel_detail_analysis
+  WHERE experimental_arm LIKE 'Treatment%'
+  GROUP BY detail
+),
+
+-- Third, combine both individual arms and treatment overall
+carousel_combined AS (
+  SELECT * FROM carousel_four_arms
+  UNION ALL
+  SELECT * FROM carousel_treatment_overall
+)
+
+-- PIVOT BY DETAIL: Show each detail category with 5-arm metrics side-by-side
+SELECT
+  detail,
+
+  -- TOTAL EVENTS by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN total_events END) AS total_events_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN total_events END) AS total_events_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN total_events END) AS total_events_no_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN total_events END) AS total_events_no_expr,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN total_events END) AS total_events_treatment_overall,
+
+  -- AVERAGE POSITION by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN avg_position END) AS avg_position_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN avg_position END) AS avg_position_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN avg_position END) AS avg_position_no_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN avg_position END) AS avg_position_no_expr,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN avg_position END) AS avg_position_treatment_overall,
+
+  -- UNIQUE USERS by arm
+  MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN unique_users END) AS unique_users_control,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN unique_users END) AS unique_users_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN unique_users END) AS unique_users_no_match,
+  MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN unique_users END) AS unique_users_no_expr,
+  MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN unique_users END) AS unique_users_treatment_overall,
+
+  -- -- EVENTS PER USER by arm
+  -- MAX(CASE WHEN experimental_arm = 'Control - No Preferences' THEN events_per_user END) AS events_per_user_control,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - Expressed Match' THEN events_per_user END) AS events_per_user_match,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - Expressed No Match' THEN events_per_user END) AS events_per_user_no_match,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment - No Expression' THEN events_per_user END) AS events_per_user_no_expr,
+  -- MAX(CASE WHEN experimental_arm = 'Treatment Overall' THEN events_per_user END) AS events_per_user_treatment_overall
+
+FROM carousel_combined
+-- where LOWER(detail) IN (
+--   'fast-food','burger','pizza','mexican','chicken','chinese','sandwich','asian',
+--   'dessert','breakfast','italian','comfort-food','steak','healthy','sushi',
+--   'seafood','coffee','thai','soup','indian','dineout'
+-- )
+GROUP BY detail
+having total_events_match > 0
+ORDER BY total_events_match desc;
+
+
+-- ===============================================================================================
+-- LIFT BY DISCOVERY FEATURE AND SURFACE (TREATMENT VS CONTROL)
+-- -----------------------------------------------------------------------------------------------
+-- Output columns:
+--   discovery_feature, discovery_surface, treatment_val, control_val, lift, overall_users_with_view
+-- Definitions:
+--   - Users with view: distinct dd_device_ID_filtered with at least one m_card_view for the pair
+--   - Rate per arm: users_with_view / total users in that arm (from experiment_preference_events)
+--   - Lift: treatment_val / control_val - 1
+--   - Ordered by overall volume = control_users_with_view + treatment_users_with_view
+WITH users_per_tag AS (
+  SELECT 
+    tag,
+    COUNT(DISTINCT dd_device_ID_filtered) AS total_users
+  FROM proddb.fionafan.experiment_preference_events
+  GROUP BY all
+),
+feature_views AS (
+  SELECT 
+    LOWER(discovery_feature) AS discovery_feature,
+    LOWER(discovery_surface) AS discovery_surface,
+    tag,
+    COUNT(DISTINCT dd_device_ID_filtered) AS users_with_view
+  FROM proddb.fionafan.experiment_preference_events
+  WHERE event = 'm_card_view'
+    AND store_id IS NOT NULL
+  GROUP BY all
+),
+feature_rates AS (
+  SELECT 
+    fv.discovery_feature,
+    fv.discovery_surface,
+    fv.tag,
+    fv.users_with_view,
+    up.total_users,
+    fv.users_with_view * 1.0 / NULLIF(up.total_users, 0) AS rate
+  FROM feature_views fv
+  JOIN users_per_tag up ON fv.tag = up.tag
+),
+pivoted AS (
+  SELECT 
+    discovery_feature,
+    discovery_surface,
+    MAX(CASE WHEN tag = 'control' THEN rate END) AS control_val,
+    MAX(CASE WHEN tag <> 'control' THEN rate END) AS treatment_val,
+    MAX(CASE WHEN tag = 'control' THEN users_with_view END) AS control_users_with_view,
+    MAX(CASE WHEN tag <> 'control' THEN users_with_view END) AS treatment_users_with_view
+  FROM feature_rates
+  GROUP BY all
+)
+SELECT 
+  discovery_feature,
+  discovery_surface,
+  treatment_val,
+  control_val,
+  treatment_val / NULLIF(control_val, 0) - 1 AS lift,
+  COALESCE(control_users_with_view, 0) + COALESCE(treatment_users_with_view, 0) AS overall_users_with_view
+FROM pivoted
+ORDER BY overall_users_with_view DESC;
+
+
+
+

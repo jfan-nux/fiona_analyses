@@ -47,22 +47,26 @@ SELECT  DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVIC
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_start_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-23'::date-60 AND '2025-08-23'
+WHERE iguazu_timestamp BETWEEN '2025-07-23'::date-30 AND '2025-07-23'
 );
 
-select count(1) from proddb.fionafan.notif_new_user_table;
+-- select count(1) from proddb.fionafan.notif_new_user_table;
 create or replace table proddb.fionafan.notif_base_table_week as (
 SELECT
   n.*, u.join_time, u.day as join_day, 
   FLOOR(DATEDIFF(day, u.join_time, n.SENT_AT_DATE) / 7) + 1 AS LIFECYCLE_WEEK
 FROM edw.consumer.fact_consumer_notification_engagement n
+
 inner join proddb.fionafan.notif_new_user_table u on n.consumer_id = u.consumer_id
 WHERE 1=1
-  AND n.SENT_AT_DATE >= '2025-08-23'::date-60
-  AND n.SENT_AT_DATE < '2025-08-23'
+  AND n.SENT_AT_DATE >= '2025-07-23'::date-30
+  AND n.SENT_AT_DATE < '2025-07-23'::date+30
+  and n.sent_at_date > u.join_time
+and n.sent_at_date <= DATEADD('day', 30, u.join_time)
   );
 
 create or replace table proddb.fionafan.notif_base_table_w_braze_week as (
+
 with ct as (
     ( with base as (SELECT distinct
     *,
@@ -208,12 +212,14 @@ select canvas_id,
     
     from base
 GROUP BY canvas_id)
-)
+),
 
-select n.*,  
+joined as (
+select distinct n.*,  
 bz.campaign_id as bz_campaign_id, bz.campaign_name as bz_campaign_name, bz.canvas_step_name as bz_canvas_step_name,
 bz.canvas_id as bz_canvas_id,
 bz.canvas_name as bz_canvas_name,
+coalesce(bz.canvas_name, bz.campaign_name) as master_campaign_name,
 bz.alert_title as bz_alert_title,
 bz.alert_body as bz_alert_body,
 bz.external_id as bz_consumer_id,
@@ -240,102 +246,89 @@ ct.has_occasions_seasonal,
 ct.has_other,
 ct.has_churned_reengagement,
 ct.has_customer_segments,
-ct.has_partnerships
+ct.has_partnerships,
+-- Derived timing features
+DATEDIFF(hour, n.join_time, n.sent_at) AS hours_since_joined,
+EXTRACT(hour FROM n.sent_at) AS send_hour_of_day
 from proddb.fionafan.notif_base_table_week n
-left join fusion_dev.test_rahul_narakula.braze_sent_messages_push_bt bz on bz.dispatch_id = n.deduped_message_id
+left join fusion_dev.test_rahul_narakula.braze_sent_messages_push_bt bz on bz.dispatch_id = n.deduped_message_id and bz.external_id = n.consumer_id
+
 left join  ct on ct.canvas_id = bz.canvas_id
+)
+
+select * from joined
 );
 
+create  or replace table proddb.fionafan.notif_base_table_w_braze_week_ranked as (
 
-select 
--- DATEDIFF(day, join_time, SENT_AT_DATE) lifecycle_day
- notification_source, count(1) cnt
-, count(distinct deduped_message_id||consumer_id||device_id)/count(distinct consumer_id||device_id) avg_num_push_per_consumer
--- , count(distinct case when opened_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_opened
--- , count(distinct case when link_clicked_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_linked_clicked
--- , count(distinct case when click_through_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_click_through
-, count(distinct case when visited_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_visited
-, count(distinct case when ordered_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_ordered
-, count(distinct case when first_session_id_after_send is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_first_session
-, count(distinct case when unsubscribed_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_unsubscribed
-, count(distinct case when uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) avg_uninstalled
-
--- Time-based metrics (1H, 4H, 24H)
-, count(distinct case when receive_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) receive_within_1h
-, count(distinct case when receive_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) receive_within_4h
-, count(distinct case when receive_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) receive_within_24h
-, count(distinct case when dismiss_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) dismiss_within_1h
-, count(distinct case when dismiss_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) dismiss_within_4h
-, count(distinct case when dismiss_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) dismiss_within_24h
--- , count(distinct case when open_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_within_1h
--- , count(distinct case when open_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_within_4h
--- , count(distinct case when open_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_within_24h
--- , count(distinct case when link_click_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) link_click_within_1h
--- , count(distinct case when link_click_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) link_click_within_4h
--- , count(distinct case when link_click_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) link_click_within_24h
--- , count(distinct case when open_to_click_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_click_within_1h
--- , count(distinct case when open_to_click_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_click_within_4h
--- , count(distinct case when open_to_click_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_click_within_24h
--- , count(distinct case when ctr_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) ctr_within_1h
--- , count(distinct case when ctr_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) ctr_within_4h
--- , count(distinct case when ctr_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) ctr_within_24h
-, count(distinct case when visit_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) visit_within_1h
-, count(distinct case when visit_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) visit_within_4h
-, count(distinct case when visit_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) visit_within_24h
-, count(distinct case when order_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) order_within_1h
-, count(distinct case when order_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) order_within_4h
-, count(distinct case when order_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) order_within_24h
-, count(distinct case when open_to_order_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_order_within_1h
-, count(distinct case when open_to_order_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_order_within_4h
-, count(distinct case when open_to_order_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) open_to_order_within_24h
--- , count(distinct case when soft_bounce_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) soft_bounce_within_1h
--- , count(distinct case when soft_bounce_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) soft_bounce_within_4h
--- , count(distinct case when soft_bounce_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) soft_bounce_within_24h
--- , count(distinct case when hard_bounce_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) hard_bounce_within_1h
--- , count(distinct case when hard_bounce_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) hard_bounce_within_4h
--- , count(distinct case when hard_bounce_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) hard_bounce_within_24h
--- , count(distinct case when bounce_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) bounce_within_1h
--- , count(distinct case when bounce_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) bounce_within_4h
--- , count(distinct case when bounce_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) bounce_within_24h
-, count(distinct case when unsubscribe_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) unsubscribe_within_1h
-, count(distinct case when unsubscribe_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) unsubscribe_within_4h
-, count(distinct case when unsubscribe_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) unsubscribe_within_24h
-, count(distinct case when device_unsubscribe_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) device_unsubscribe_within_1h
-, count(distinct case when device_unsubscribe_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) device_unsubscribe_within_4h
-, count(distinct case when device_unsubscribe_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) device_unsubscribe_within_24h
-, count(distinct case when uninstall_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) uninstall_within_1h
-, count(distinct case when uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) uninstall_within_4h
-, count(distinct case when uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) uninstall_within_24h
--- , count(distinct case when marked_as_spam_within_1h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) marked_as_spam_within_1h
--- , count(distinct case when marked_as_spam_within_4h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) marked_as_spam_within_4h
--- , count(distinct case when marked_as_spam_within_24h=1 then deduped_message_id||consumer_id||device_id end)/count(distinct consumer_id||device_id) marked_as_spam_within_24h
-
--- Timing metrics (from sent_at to various events)
--- , sum(case when opened_at is not null then DATEDIFF(minute, sent_at, opened_at) else 0 end)/count(case when opened_at is not null then 1 else 0 end) avg_time_send_to_open_minutes
--- , sum(case when link_clicked_at is not null then DATEDIFF(minute, sent_at, link_clicked_at) else 0 end)/count(case when link_clicked_at is not null then 1 else 0 end) avg_time_send_to_linked_click_minutes
--- , sum(case when click_through_at is not null then DATEDIFF(minute, sent_at, click_through_at) else 0 end)/count(case when click_through_at is not null then 1 else 0 end) avg_time_send_to_click_through_minutes
-, sum(case when visited_at is not null then DATEDIFF(minute, sent_at, visited_at) else 0 end)/count(case when visited_at is not null then 1 else 0 end) avg_time_send_to_visit_minutes
-, sum(case when ordered_at is not null then DATEDIFF(minute, sent_at, ordered_at) else 0 end)/count(case when ordered_at is not null then 1 else 0 end) avg_time_send_to_order_minutes
-, sum(case when unsubscribed_at is not null then DATEDIFF(minute, sent_at, unsubscribed_at) else 0 end)/count(case when unsubscribed_at is not null then 1 else 0 end) avg_time_send_to_unsubscribe_minutes
-, sum(case when uninstalled_at is not null then DATEDIFF(minute, sent_at, uninstalled_at) else 0 end)/count(case when uninstalled_at is not null then 1 else 0 end) avg_time_send_to_uninstall_minutes
-, sum(case when received_at is not null then DATEDIFF(minute, sent_at, received_at) else 0 end)/count(case when received_at is not null then 1 else 0 end) avg_time_send_to_receive_minutes
-, sum(case when dismissed_at is not null then DATEDIFF(minute, sent_at, dismissed_at) else 0 end)/count(case when dismissed_at is not null then 1 else 0 end) avg_time_send_to_dismiss_minutes
-
-
-
-from proddb.fionafan.notif_base_table_w_braze_week 
-
+with joined as (
+select * from proddb.fionafan.notif_base_table_w_braze_week
 where 1=1
 and notification_channel = 'PUSH'
-and notification_message_type_overall != 'TRANSACTIONAL'
-and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
-and is_valid_send = 1 and lifecycle_week >0 
-group by all
-;
+    and notification_message_type_overall != 'TRANSACTIONAL'
+    and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+    and is_valid_send = 1 
+    and coalesce(canvas_name, campaign_name) is not null
+),
+msg_times as (
+  select 
+    j.*,
+    -- collapsed message times per campaign thread and per device thread
+    MIN(j.sent_at) OVER (
+      PARTITION BY j.consumer_id, j.device_id, j.master_campaign_name, j.deduped_message_id
+    ) as campaign_min_sent_at,
+    MIN(j.sent_at) OVER (
+      PARTITION BY j.consumer_id, j.device_id, j.deduped_message_id
+    ) as device_min_sent_at
+  from joined j
+),
+ranked as (
+  select 
+    m.*,
+    DENSE_RANK() OVER (
+      PARTITION BY m.consumer_id, m.device_id, m.master_campaign_name
+      ORDER BY m.campaign_min_sent_at
+    ) as campaign_message_rank,
+    LAG(m.campaign_min_sent_at) OVER (
+      PARTITION BY m.consumer_id, m.device_id, m.master_campaign_name
+      ORDER BY m.campaign_min_sent_at
+    ) as prev_campaign_message_min_sent_at,
+    DENSE_RANK() OVER (
+      PARTITION BY m.consumer_id, m.device_id
+      ORDER BY m.device_min_sent_at
+    ) as device_message_rank,
+    LAG(m.device_min_sent_at) OVER (
+      PARTITION BY m.consumer_id, m.device_id
+      ORDER BY m.device_min_sent_at
+    ) as prev_device_message_min_sent_at
+  from msg_times m
+)
 
+select 
+  r.*, 
+
+  -- Time since previous message (hours), message-level
+  DATEDIFF(hour, r.prev_campaign_message_min_sent_at, r.campaign_min_sent_at) as hours_since_prev_message_campaign,
+  DATEDIFF(hour, r.prev_device_message_min_sent_at, r.device_min_sent_at) as hours_since_prev_message_device,
+  -- First..Fifth message hours since join within campaign thread (message-level)
+  MAX(CASE WHEN r.campaign_message_rank = 1 THEN DATEDIFF(hour, r.join_time, r.campaign_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id, r.master_campaign_name) as msg1_hours_since_join_campaign,
+  MAX(CASE WHEN r.campaign_message_rank = 2 THEN DATEDIFF(hour, r.join_time, r.campaign_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id, r.master_campaign_name) as msg2_hours_since_join_campaign,
+  MAX(CASE WHEN r.campaign_message_rank = 3 THEN DATEDIFF(hour, r.join_time, r.campaign_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id, r.master_campaign_name) as msg3_hours_since_join_campaign,
+  MAX(CASE WHEN r.campaign_message_rank = 4 THEN DATEDIFF(hour, r.join_time, r.campaign_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id, r.master_campaign_name) as msg4_hours_since_join_campaign,
+  MAX(CASE WHEN r.campaign_message_rank = 5 THEN DATEDIFF(hour, r.join_time, r.campaign_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id, r.master_campaign_name) as msg5_hours_since_join_campaign,
+  -- First..Fifth message hours since join overall (device thread)
+  MAX(CASE WHEN r.device_message_rank = 1 THEN DATEDIFF(hour, r.join_time, r.device_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id) as msg1_hours_since_join_device,
+  MAX(CASE WHEN r.device_message_rank = 2 THEN DATEDIFF(hour, r.join_time, r.device_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id) as msg2_hours_since_join_device,
+  MAX(CASE WHEN r.device_message_rank = 3 THEN DATEDIFF(hour, r.join_time, r.device_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id) as msg3_hours_since_join_device,
+  MAX(CASE WHEN r.device_message_rank = 4 THEN DATEDIFF(hour, r.join_time, r.device_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id) as msg4_hours_since_join_device,
+  MAX(CASE WHEN r.device_message_rank = 5 THEN DATEDIFF(hour, r.join_time, r.device_min_sent_at) END) OVER (PARTITION BY r.consumer_id, r.device_id) as msg5_hours_since_join_device
+from ranked r
+);
+
+select * from proddb.fionafan.notif_base_table_w_braze_week_ranked where consumer_id = '15771120';
 -- Campaign-level analysis grouped by master_campaign_name
 create or replace table proddb.fionafan.notif_campaign_performance as (
-select 
+select notification_source,
     coalesce(canvas_name, campaign_name) as master_campaign_name,
     count(distinct deduped_message_id||consumer_id||device_id) as total_notifications,
     count(distinct consumer_id||device_id) as unique_consumer_devices,
@@ -358,6 +351,14 @@ select
     count(distinct case when uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_within_24h_rate,
     count(distinct case when uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_within_4h_rate,
     sum(case when uninstalled_at is not null then DATEDIFF(minute, sent_at, uninstalled_at) else 0 end)/NULLIF(count(case when uninstalled_at is not null then 1 end), 0) as avg_time_to_uninstall_minutes,
+    -- Uninstall after open metrics
+    count(distinct case when opened_at is not null and uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_rate,
+    count(distinct case when open_within_4h=1 and uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_within_4h_rate,
+    count(distinct case when open_within_24h=1 and uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_within_24h_rate,
+    -- Uninstall among non-purchasers metrics
+    count(distinct case when ordered_at is null and uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_rate,
+    count(distinct case when order_within_4h=0 and uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_within_4h_rate,
+    count(distinct case when order_within_24h=0 and uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_within_24h_rate,
     -- Open timing metrics
     sum(case when opened_at is not null then DATEDIFF(minute, sent_at, opened_at) else 0 end)/NULLIF(count(case when opened_at is not null then 1 end), 0) as avg_time_to_open_minutes
     , count(distinct case when ordered_at is not null then deduped_message_id||consumer_id||device_id end)/nullif(count(distinct consumer_id||device_id),0) avg_ordered
@@ -385,6 +386,41 @@ select
     max(has_churned_reengagement) as has_churned_reengagement,
     max(has_customer_segments) as has_customer_segments,
     max(has_partnerships) as has_partnerships,
+
+    -- -- New timing aggregates from notif_base_table_w_braze_week
+    -- AVG(hours_since_joined) as avg_hours_since_joined,
+    -- MEDIAN(hours_since_joined) as median_hours_since_joined,
+    -- AVG(send_hour_of_day) as avg_send_hour_of_day,
+    -- MEDIAN(send_hour_of_day) as median_send_hour_of_day,
+
+    -- AVG(hours_since_prev_message_campaign) as avg_hours_since_prev_message_campaign,
+    -- MEDIAN(hours_since_prev_message_campaign) as median_hours_since_prev_message_campaign,
+    -- AVG(hours_since_prev_message_device) as avg_hours_since_prev_message_device,
+    -- MEDIAN(hours_since_prev_message_device) as median_hours_since_prev_message_device,
+
+    -- -- First..Fifth hours since join within campaign thread
+    -- AVG(msg1_hours_since_join_campaign) as avg_msg1_hours_since_join_campaign,
+    -- MEDIAN(msg1_hours_since_join_campaign) as median_msg1_hours_since_join_campaign,
+    -- AVG(msg2_hours_since_join_campaign) as avg_msg2_hours_since_join_campaign,
+    -- MEDIAN(msg2_hours_since_join_campaign) as median_msg2_hours_since_join_campaign,
+    -- AVG(msg3_hours_since_join_campaign) as avg_msg3_hours_since_join_campaign,
+    -- MEDIAN(msg3_hours_since_join_campaign) as median_msg3_hours_since_join_campaign,
+    -- AVG(msg4_hours_since_join_campaign) as avg_msg4_hours_since_join_campaign,
+    -- MEDIAN(msg4_hours_since_join_campaign) as median_msg4_hours_since_join_campaign,
+    -- AVG(msg5_hours_since_join_campaign) as avg_msg5_hours_since_join_campaign,
+    -- MEDIAN(msg5_hours_since_join_campaign) as median_msg5_hours_since_join_campaign,
+
+    -- -- First..Fifth hours since join overall (device thread)
+    -- AVG(msg1_hours_since_join_device) as avg_msg1_hours_since_join_device,
+    -- MEDIAN(msg1_hours_since_join_device) as median_msg1_hours_since_join_device,
+    -- AVG(msg2_hours_since_join_device) as avg_msg2_hours_since_join_device,
+    -- MEDIAN(msg2_hours_since_join_device) as median_msg2_hours_since_join_device,
+    -- AVG(msg3_hours_since_join_device) as avg_msg3_hours_since_join_device,
+    -- MEDIAN(msg3_hours_since_join_device) as median_msg3_hours_since_join_device,
+    -- AVG(msg4_hours_since_join_device) as avg_msg4_hours_since_join_device,
+    -- MEDIAN(msg4_hours_since_join_device) as median_msg4_hours_since_join_device,
+    -- AVG(msg5_hours_since_join_device) as avg_msg5_hours_since_join_device,
+    -- MEDIAN(msg5_hours_since_join_device) as median_msg5_hours_since_join_device,
     
     -- Tag aggregations
     listagg(distinct bz_tag_categories, ' | ') within group (order by bz_tag_categories) as all_tag_categories,
@@ -401,18 +437,19 @@ select
     max(sent_at_date) as last_sent_date
 
 from proddb.fionafan.notif_base_table_w_braze_week 
+
 where 1=1
     and notification_channel = 'PUSH'
     and notification_message_type_overall != 'TRANSACTIONAL'
     and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
     and is_valid_send = 1 
     and coalesce(canvas_name, campaign_name) is not null
-group by coalesce(canvas_name, campaign_name)
+group by notification_source, coalesce(canvas_name, campaign_name)
 order by total_notifications desc
 )
 ;
 
-select * from proddb.fionafan.notif_campaign_performance order by total_notifications desc;
+select * from proddb.fionafan.notif_campaign_performance where notification_source = 'Braze' order by total_notifications desc;
 
 -- Query to cap alert title and body character lengths
 SELECT 
@@ -421,21 +458,23 @@ SELECT
     unique_consumer_devices,
     avg_pushes_per_customer,
     open_rate,
+    avg_ordered,
+    uninstall_rate,
+    unsubscribed_rate,
+    LEFT(all_alert_titles, 10000) as all_alert_titles_capped,
+    LEFT(all_alert_bodies, 20000) as all_alert_bodies_capped,
+    avg_time_to_open_minutes,
+    avg_time_to_uninstall_minutes,
+    avg_time_to_unsubscribe_minutes,
+
     open_within_24h_rate,
     open_within_4h_rate,
-    first_session_rate,
-    unsubscribed_rate,
     unsubscribed_within_24h_rate,
     unsubscribed_within_4h_rate,
-    avg_time_to_unsubscribe_minutes,
-    uninstall_rate,
+    
     uninstall_within_24h_rate,
     uninstall_within_4h_rate,
-    avg_time_to_uninstall_minutes,
-    avg_time_to_open_minutes,
     
-    -- Order metrics
-    avg_ordered,
     order_within_1h,
     order_within_4h,
     order_within_24h,
@@ -461,9 +500,7 @@ SELECT
     all_tag_categories,
     all_tags,
     -- Cap alert titles to 100 characters
-    LEFT(all_alert_titles, 10000) as all_alert_titles_capped,
-    -- Cap alert bodies to 200 characters  
-    LEFT(all_alert_bodies, 20000) as all_alert_bodies_capped,
+    
     -- Alternative using SUBSTRING (same result)
     -- SUBSTRING(all_alert_titles, 1, 100) as all_alert_titles_capped,
     -- SUBSTRING(all_alert_bodies, 1, 200) as all_alert_bodies_capped,
@@ -472,6 +509,7 @@ SELECT
     first_sent_date,
     last_sent_date
 FROM proddb.fionafan.notif_campaign_performance 
+where notification_source = 'Braze'
 ORDER BY total_notifications DESC;
 
 select deduped_message_id, device_id, count(1) cnt from proddb.fionafan.notif_base_table_w_braze_week 

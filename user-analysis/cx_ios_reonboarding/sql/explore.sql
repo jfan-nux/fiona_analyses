@@ -1,0 +1,1 @@
+select * from proddb.public.dimension_consumer limit 10;

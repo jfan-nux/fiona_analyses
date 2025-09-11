@@ -4,7 +4,7 @@ SELECT  DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVIC
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_start_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30';
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30';
 
 
 -- device_id_level topline queries
@@ -22,8 +22,8 @@ FROM segment_events_raw.consumer_production.order_cart_submit_received a
     JOIN dimension_deliveries dd
     ON a.order_cart_id = dd.order_cart_id
     AND dd.is_filtered_core = 1
-    AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-18' AND '2025-09-30'
-WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-18' AND '2025-09-30'
+    AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-08-04' AND '2025-09-30'
+WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-08-04' AND '2025-09-30'
 
 )
 

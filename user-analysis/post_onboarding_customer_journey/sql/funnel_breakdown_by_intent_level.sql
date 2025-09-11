@@ -12,7 +12,7 @@
 --   FROM proddb.public.fact_dedup_experiment_exposure ee
 --   WHERE experiment_name = 'cx_mobile_onboarding_preferences'
 --     AND experiment_version::INT = 1
---     AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
+--     AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-04' AND '2025-09-30'
 --   GROUP BY 1,2,3,4,5
 -- ),
 
@@ -23,7 +23,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 -- ),
 
 -- start_page_click AS (
@@ -33,7 +33,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.m_onboarding_start_promo_page_click_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 -- ),
 
 -- notification_view AS (
@@ -43,7 +43,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_view_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'notification'
 -- ),
 
@@ -54,7 +54,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_click_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'notification'
 -- ),
 
@@ -65,7 +65,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_view_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'marketingSMS'
 -- ),
 
@@ -76,7 +76,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_click_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'marketingSMS'
 -- ),
 
@@ -87,7 +87,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_view_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'att'
 -- ),
 
@@ -98,7 +98,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.M_onboarding_page_click_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 --     AND page = 'att'
 -- ),
 
@@ -109,7 +109,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 -- ),
 
 -- end_page_click AS (
@@ -119,7 +119,7 @@
 --          cast(iguazu_timestamp as date) AS day,
 --          consumer_id
 --   FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice
---   WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+--   WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 -- )
 
 -- SELECT DISTINCT 

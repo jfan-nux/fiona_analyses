@@ -10,7 +10,7 @@ WITH exposure AS
 FROM proddb.public.fact_dedup_experiment_exposure ee
 WHERE experiment_name = 'cx_mobile_onboarding_preferences'
 AND experiment_version::INT = 1
-AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-18' AND '2025-09-30'
+AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-04' AND '2025-09-30'
 GROUP BY 1,2,3,4,5
 )
 
@@ -20,7 +20,7 @@ SELECT  DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVIC
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_start_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 )
 
 -- onboarding iguazu.comsumer
@@ -31,7 +31,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from  iguazu.consumer.m_onboarding_start_promo_page_click_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 )
 
 , notification_view AS (
@@ -41,7 +41,7 @@ SELECT
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from  iguazu.consumer.M_onboarding_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'notification'
 )
 
@@ -52,7 +52,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , consumer_id
 -- from datalake.iguazu_consumer.M_onboarding_page_click_ice
 from iguazu.consumer.M_onboarding_page_click_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'notification'
 )
 
@@ -63,7 +63,7 @@ SELECT
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from  iguazu.consumer.M_onboarding_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'marketingSMS'
 )
 
@@ -74,7 +74,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , consumer_id
 -- from datalake.iguazu_consumer.M_onboarding_page_click_ice
 from iguazu.consumer.M_onboarding_page_click_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'marketingSMS'
 )
 
@@ -84,7 +84,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from  iguazu.consumer.M_onboarding_page_view_ice
-WHERE iguazu_timestamp  BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp  BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'att'
 )
 
@@ -94,7 +94,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from  iguazu.consumer.M_onboarding_page_click_ice
-WHERE iguazu_timestamp  BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp  BETWEEN '2025-08-04' AND '2025-09-30'
 and page = 'att'
 )
 
@@ -104,7 +104,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_end_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 )
 
 , end_page_click AS (
@@ -113,7 +113,7 @@ SELECT DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_end_promo_page_click_ice
-WHERE iguazu_timestamp BETWEEN '2025-08-18' AND '2025-09-30'
+WHERE iguazu_timestamp BETWEEN '2025-08-04' AND '2025-09-30'
 )
 
 , funnel AS (
