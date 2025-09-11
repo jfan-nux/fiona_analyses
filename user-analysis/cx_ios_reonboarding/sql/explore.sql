@@ -1,1 +1,1 @@
-select * from proddb.public.dimension_consumer limit 10;
+select * from edw.core.dimension_users limit 10;

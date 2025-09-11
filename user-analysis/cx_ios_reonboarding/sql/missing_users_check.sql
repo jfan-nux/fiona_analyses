@@ -37,4 +37,4 @@ WHERE du.user_id IS NULL
 GROUP BY 1,2,3,4,5
 ORDER BY 1,2,3;
 
-select * from edw.growth.consumer_growth_accounting_scd3 where user_id = '1234567890';
+select * from edw.growth.consumer_growth_accounting_scd3 where consumer_id = '669952509';
