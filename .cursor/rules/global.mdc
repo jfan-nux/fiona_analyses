@@ -5,7 +5,7 @@ alwaysApply: true
 
 ## Core Principles
 - **Never Fabricate Data**: Use only real data from Snowflake or user-provided sources
-- **Always activate virtual environment**: `source venv/bin/activate` before running scripts
+- **Always activate virtual environment**: `source venv/bin/activate` before running scripts. This version has pyspark in it.
 - **No README files** for analysis projects
 - **Organize everything** under `user-analysis/` with separate SQL and Python files
 
@@ -155,6 +155,7 @@ When user requests experiment analysis, clarify:
 ### User Rules
 1. When creating tables/temp views with SQL code, create under proddb.fionafan schema, unless otherwise sepcified.
 2. Use group by all instead of group by 1,2,3,4 etc.
+3. Use this logic to filter device_id, but make sure to mark it as dd_device_id_filtered. When joining, make sure to join on filtered device_id. replace(lower(CASE WHEN device_id like 'dx_%' then device_id else 'dx_'||device_id end), '-') 
 
 ## Project Settings
 ```ini

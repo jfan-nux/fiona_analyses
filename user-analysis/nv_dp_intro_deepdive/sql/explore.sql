@@ -161,7 +161,7 @@ WHERE 1=1
 and n.sent_at_date <= DATEADD('day', 60, u.join_time)
   );
 
-
+select max(sent_at_date) from proddb.fionafan.nv_dp_new_user_notifications_60d;
 
 -- Notifications within 30d enriched with Braze campaign/canvas metadata and tag-category features; includes timing features relative to join.
 create or replace table proddb.fionafan.nv_dp_new_user_notifications_60d_w_braze_week as (
@@ -426,12 +426,11 @@ from ranked r
 );
 
 
--- Orders linked to new users with monetary and item metrics; includes timing deltas from join to order and store attributes.
 CREATE OR REPLACE TABLE proddb.fionafan.nv_dp_new_user_orders AS (
 
 
-  WITH order_events AS (
-    SELECT DISTINCT 
+  WITH order_events_all AS (
+    SELECT 
       a.DD_DEVICE_ID,
       replace(lower(CASE WHEN a.DD_device_id like 'dx_%' then a.DD_device_id
                   else 'dx_'||a.DD_device_id end), '-') AS dd_device_ID_filtered,
@@ -459,7 +458,8 @@ CREATE OR REPLACE TABLE proddb.fionafan.nv_dp_new_user_orders AS (
       dd.NV_VERTICAL_NAME AS nv_vertical_name,
       dd.NV_ORG AS nv_org,
       dd.NV_BUSINESS_LINE AS nv_business_line,
-      dd.NV_BUSINESS_SUB_TYPE AS nv_business_sub_type
+      dd.NV_BUSINESS_SUB_TYPE AS nv_business_sub_type,
+      row_number() over (partition by dd.delivery_id order by a.timestamp) as rn
     FROM segment_events_raw.consumer_production.order_cart_submit_received a
     JOIN dimension_deliveries dd
 
@@ -469,9 +469,42 @@ CREATE OR REPLACE TABLE proddb.fionafan.nv_dp_new_user_orders AS (
     WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN '2025-04-01' AND '2025-09-12'
   ),
   
+  order_events AS (
+    SELECT 
+      DD_DEVICE_ID,
+      dd_device_ID_filtered,
+      order_day,
+      order_timestamp,
+      order_cart_id,
+      delivery_id,
+      active_date,
+      created_at,
+      actual_delivery_time,
+      gov,
+      subtotal,
+      total_item_count,
+      distinct_item_count,
+      is_consumer_pickup,
+      is_first_ordercart,
+      is_first_ordercart_dd,
+      is_subscribed_consumer,
+      store_id,
+      store_name,
+      variable_profit,
+      tip,
+      delivery_fee,
+      service_fee,
+      nv_vertical_name,
+      nv_org,
+      nv_business_line,
+      nv_business_sub_type
+    FROM order_events_all
+    WHERE rn = 1
+  ),
+  
   experiment_orders AS (
     SELECT distinct
-
+      
       epe.dd_device_ID_filtered,
       epe.join_time,
       epe.day as join_day,
@@ -507,17 +540,19 @@ CREATE OR REPLACE TABLE proddb.fionafan.nv_dp_new_user_orders AS (
       DATEDIFF('hour', epe.join_time, oe.order_timestamp) AS hours_between_exposure_and_order,
       DATEDIFF('day', epe.join_time, oe.order_timestamp) AS days_between_exposure_and_order,
       
-
+      
     FROM proddb.fionafan.nv_dp_new_user_table epe
 
     LEFT JOIN order_events oe
       ON epe.dd_device_ID_filtered = oe.dd_device_ID_filtered 
       AND epe.join_time <= oe.order_timestamp  -- Order must be after effective exposure
-    
+      
   )
   
-  SELECT * FROM experiment_orders
-  WHERE delivery_id IS NOT NULL  -- Only include rows where we found orders
+  SELECT *
+  FROM experiment_orders
+  WHERE delivery_id IS NOT NULL
+  QUALIFY row_number() over (partition by delivery_id order by order_timestamp) = 1
 );
 
 
@@ -841,3 +876,25 @@ ORDER BY fs.exposure_time, fs.dd_device_ID_filtered
 );
 
 select * from edw.merchant.dimension_store where nv_org is not null order by consumer_count desc limit 1000;
+
+
+select * from  proddb.fionafan.nv_dp_logit_results_0_5 order by target, abs(coef) desc;
+
+select count(1) from proddb.fionafan.nv_dp_new_user_table;
+
+SELECT 
+  -- consumer_id, 
+  -- dd_platform as platform, 
+  -- onboarding_type, 
+  case when REGEXP_LIKE(promo_title, '%') then 'Monetary' else 'Welcome back' END as promo_title, 
+  promo_title,
+  count(1)
+FROM 
+  datalake.iguazu_consumer.m_onboarding_end_promo_page_view
+WHERE 
+  iguazu_timestamp > current_timestamp - interval '7 days'
+AND
+  onboarding_type = 'resurrected_user'
+AND
+  dd_platform = 'ios'
+group by all

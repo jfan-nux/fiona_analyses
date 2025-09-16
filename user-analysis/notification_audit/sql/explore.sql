@@ -17,3 +17,14 @@ drop table if exists proddb.fionafan.notif_campaign_performance_factors;
 select * from proddb.fionafan.notif_campaign_performance_factors;
 
 select count(1) from  proddb.fionafan.notif_base_table_w_braze_week;
+
+
+
+select case when bz_consumer_id is null then 0 else 1 end as bz_present, count(1) cnt from proddb.fionafan.notif_base_table_w_braze_week 
+
+where notification_source ='Braze' 
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and is_valid_send = 1 -- mostly valid for fpn sends
+group by all;

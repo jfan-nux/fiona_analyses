@@ -113,4 +113,3 @@ ORDER BY store_id, item_id;
 -- ) x
 -- GROUP BY all
 -- ORDER BY deliveries_30d_bucket;
-

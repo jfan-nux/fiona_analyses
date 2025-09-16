@@ -26,8 +26,8 @@ INNER JOIN onboarding_users ou
     AND convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date = ou.onboard_day
 WHERE experiment_name = 'should_pin_leaderboard_carousel'
 AND ee.segment = 'iOS'
-AND experiment_version::INT = 2
-AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-08-25' AND '2025-09-30'
+AND experiment_version::INT = 3
+AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-09-15' AND '2025-09-30'
 GROUP BY 1,2,3,4,5
 
 )

@@ -334,38 +334,39 @@ select notification_source,
     count(distinct consumer_id||device_id) as unique_consumer_devices,
     count(distinct deduped_message_id||consumer_id||device_id)/NULLIF(count(distinct consumer_id||device_id), 0) as avg_pushes_per_customer,
     
-    -- Core engagement metrics
-    count(distinct case when opened_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as open_rate,
-    count(distinct case when open_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as open_within_24h_rate,
-    count(distinct case when open_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as open_within_4h_rate,
-    count(distinct case when first_session_id_after_send is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as first_session_rate,
+    -- Core engagement metrics (message-level denominator)
+    count(distinct case when opened_at is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as open_rate,
+    count(distinct case when open_within_24h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as open_within_24h_rate,
+    count(distinct case when open_within_4h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as open_within_4h_rate,
+    count(distinct case when first_session_id_after_send is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as first_session_rate,
     
-    -- Unsubscribe metrics
-    count(distinct case when unsubscribed_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as unsubscribed_rate,
-    count(distinct case when unsubscribe_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as unsubscribed_within_24h_rate,
-    count(distinct case when unsubscribe_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as unsubscribed_within_4h_rate,
+    -- Unsubscribe metrics (message-level denominator)
+    count(distinct case when unsubscribed_at is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as unsubscribed_rate,
+    count(distinct case when unsubscribe_within_24h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as unsubscribed_within_24h_rate,
+    count(distinct case when unsubscribe_within_4h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as unsubscribed_within_4h_rate,
     sum(case when unsubscribed_at is not null then DATEDIFF(minute, sent_at, unsubscribed_at) else 0 end)/NULLIF(count(case when unsubscribed_at is not null then 1 end), 0) as avg_time_to_unsubscribe_minutes,
     
-    -- Uninstall metrics  
-    count(distinct case when uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_rate,
-    count(distinct case when uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_within_24h_rate,
-    count(distinct case when uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_within_4h_rate,
+    -- Uninstall metrics (message-level denominator)
+
+    count(distinct case when uninstalled_at is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_rate,
+    count(distinct case when uninstall_within_24h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_within_24h_rate,
+    count(distinct case when uninstall_within_4h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_within_4h_rate,
     sum(case when uninstalled_at is not null then DATEDIFF(minute, sent_at, uninstalled_at) else 0 end)/NULLIF(count(case when uninstalled_at is not null then 1 end), 0) as avg_time_to_uninstall_minutes,
-    -- Uninstall after open metrics
-    count(distinct case when opened_at is not null and uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_rate,
-    count(distinct case when open_within_4h=1 and uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_within_4h_rate,
-    count(distinct case when open_within_24h=1 and uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_after_open_within_24h_rate,
-    -- Uninstall among non-purchasers metrics
-    count(distinct case when ordered_at is null and uninstalled_at is not null then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_rate,
-    count(distinct case when order_within_4h=0 and uninstall_within_4h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_within_4h_rate,
-    count(distinct case when order_within_24h=0 and uninstall_within_24h=1 then deduped_message_id||consumer_id||device_id end)/NULLIF(count(distinct consumer_id||device_id), 0) as uninstall_non_purchasers_within_24h_rate,
+    -- Uninstall after open metrics (message-level denominator)
+    count(distinct case when opened_at is not null and uninstalled_at is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_after_open_rate,
+    count(distinct case when open_within_4h=1 and uninstall_within_4h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_after_open_within_4h_rate,
+    count(distinct case when open_within_24h=1 and uninstall_within_24h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_after_open_within_24h_rate,
+    -- Uninstall among non-purchasers metrics (message-level denominator)
+    count(distinct case when ordered_at is null and uninstalled_at is not null then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_non_purchasers_rate,
+    count(distinct case when order_within_4h=0 and uninstall_within_4h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_non_purchasers_within_4h_rate,
+    count(distinct case when order_within_24h=0 and uninstall_within_24h=1 then deduped_message_id end)/NULLIF(count(distinct deduped_message_id), 0) as uninstall_non_purchasers_within_24h_rate,
     -- Open timing metrics
     sum(case when opened_at is not null then DATEDIFF(minute, sent_at, opened_at) else 0 end)/NULLIF(count(case when opened_at is not null then 1 end), 0) as avg_time_to_open_minutes
-    , count(distinct case when ordered_at is not null then deduped_message_id||consumer_id||device_id end)/nullif(count(distinct consumer_id||device_id),0) avg_ordered
+    , count(distinct case when ordered_at is not null then deduped_message_id end)/nullif(count(distinct deduped_message_id),0) avg_ordered
 
-    , count(distinct case when order_within_1h=1 then deduped_message_id||consumer_id||device_id end)/nullif(count(distinct consumer_id||device_id),0) order_within_1h
-, count(distinct case when order_within_4h=1 then deduped_message_id||consumer_id||device_id end)/nullif(count(distinct consumer_id||device_id),0) order_within_4h
-, count(distinct case when order_within_24h=1 then deduped_message_id||consumer_id||device_id end)/nullif(count(distinct consumer_id||device_id),0) order_within_24h,
+    , count(distinct case when order_within_1h=1 then deduped_message_id end)/nullif(count(distinct deduped_message_id),0) order_within_1h
+, count(distinct case when order_within_4h=1 then deduped_message_id end)/nullif(count(distinct deduped_message_id),0) order_within_4h
+, count(distinct case when order_within_24h=1 then deduped_message_id end)/nullif(count(distinct deduped_message_id),0) order_within_24h,
 
     -- Tag category binary indicators
     max(has_geographic_targeting) as has_geographic_targeting,
@@ -522,3 +523,26 @@ group by all having cnt>1 order by cnt desc limit 10;
 
 select * from proddb.fionafan.notif_base_table_w_braze_week where device_id = '735B2C62-A86D-462D-9FFF-B336D11B8D28' and deduped_message_id = '68793dda17e5807c2d24a95de9e0e9a5'
 and consumer_id = '1917314864';
+
+
+select case when uninstalled_at > sent_at + interval '24h' then 1 else 0 end as uninstalled_after_24h, count(1) cnt  
+from proddb.fionafan.notif_base_table_w_braze_week where notification_source = 'Braze' group by all 
+limit 10;
+
+
+select consumer_id, avg(uninstall_within_24h) avg, max(uninstall_within_24h) max 
+from proddb.fionafan.notif_base_table_w_braze_week 
+where master_campaign_name = 'TRG-NPWS45d-YDTMRefresh-CR-HQCRM-Other-P-NA-EN-NEW40OFF' 
+group by all 
+having avg <0.5 and max = 1
+limit 10;
+
+select sent_at, campaign_name, canvas_name, consumer_id, uninstall_within_24h, uninstalled_at
+FROM edw.consumer.fact_consumer_notification_engagement n
+WHERE 1=1
+  AND n.SENT_AT_DATE between '2025-06-30' and '2025-07-11'
+  and notification_channel = 'PUSH'
+and coalesce(canvas_name, campaign_name) = 'TRG-NPWS45d-YDTMRefresh-CR-HQCRM-Other-P-NA-EN-NEW40OFF' 
+and consumer_id = '1960062887';
+
+
