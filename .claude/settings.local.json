@@ -4,7 +4,19 @@
       "mcp__cursor-analytics__describe_table",
       "mcp__cursor-analytics__search_queries_by_keyword",
       "mcp__cursor-analytics__fetch_table_context",
-      "mcp__cursor-analytics__execute_snowflake_query"
+      "mcp__cursor-analytics__execute_snowflake_query",
+      "Bash(python:*)",
+      "Bash(PYTHONPATH=/Users/fiona.fan/Documents/fiona_analyses/utils:$PYTHONPATH python user-analysis/nv_dp_intro_deepdive/python/plot_nv_impression_impact_on_order_rates.py)",
+      "Bash(PYTHONPATH=/Users/fiona.fan/Documents/fiona_analyses/utils:$PYTHONPATH python user-analysis/nv_dp_intro_deepdive/python/plot_session_nv_coverage_analysis.py)",
+      "Bash(PYTHONPATH=/Users/fiona.fan/Documents/fiona_analyses/utils:$PYTHONPATH python user-analysis/nv_dp_intro_deepdive/python/enhanced_nv_impact_analysis.py)",
+      "Bash(PYTHONPATH=/Users/fiona.fan/Documents/fiona_analyses/utils:$PYTHONPATH python user-analysis/nv_dp_intro_deepdive/python/plot_nv_session_ratios.py)",
+      "Bash(PYTHONPATH=/Users/fiona.fan/Documents/fiona_analyses/utils:$PYTHONPATH python user-analysis/nv_dp_intro_deepdive/python/plot_nv_join_order_rates.py)",
+      "Bash(pkill:*)",
+      "Bash(cursor-analytics-mcp:*)",
+      "mcp__cursor-analytics__upload_md_to_google_doc",
+      "mcp__cursor-analytics__convert_google_doc_to_markdown",
+      "mcp__cursor-analytics__execute_sql_and_upload_to_google_sheet",
+      "WebFetch(domain:docs.google.com)"
     ],
     "deny": [],
     "ask": []

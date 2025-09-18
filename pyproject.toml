@@ -29,7 +29,7 @@ dependencies = [
     "keyring>=23.0.0",
     "sqlalchemy>=1.4.0",
     "polars>=0.18.0",
-    "pyspark>=3.5.0",
+    "pyspark==3.3.4",
     "packaging>=21.0",
     # Confluence integration
     "atlassian-python-api>=3.0.0",

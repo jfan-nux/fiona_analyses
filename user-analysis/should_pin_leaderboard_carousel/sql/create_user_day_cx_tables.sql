@@ -115,4 +115,4 @@ CREATE OR REPLACE TABLE proddb.fionafan.cx_funnel_experiment_analysis AS (
 
 grant select on proddb.fionafan.cx_funnel_experiment_analysis to read_only_users;
 
-select * from proddb.fionafan.cx_funnel_experiment_analysis limit 10;
+select * from proddb.fionafan.cx_funnel_experiment_analysis limit 10; 
