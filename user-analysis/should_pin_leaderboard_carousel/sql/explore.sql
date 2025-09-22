@@ -72,4 +72,5 @@ order by cont_cnt desc, store_type desc;
 
 select distinct carousel_name from proddb.fionafan.leaderboard_m_card_view  limit 10;
 
-proddb.public.fact_unique_visitors_full_pt
+
+

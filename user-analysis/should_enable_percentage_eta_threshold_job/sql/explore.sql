@@ -16,7 +16,7 @@ AND experiment_version = $version
 and segment = 'Users'
 AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN $start_date AND $end_date
 GROUP BY all
-) select * from base_Population ;
+) select * from base_Population 
 );
 
 
@@ -28,4 +28,9 @@ group by all;
 
 
 
-select count(1) from proddb.henryliao.asap_elasticity_score_2025 limit 10;
+select count(1) from proddb.henryliao.asap_elasticity_score_2025 a
+inner join proddb.fionafan.should_enable_percentage_eta_threshold_job_experiment_exposures b
+on a.creator_id = b.bucket_key
+
+
+limit 10;
