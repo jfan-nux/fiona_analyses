@@ -7,7 +7,24 @@
 --   - proddb.fionafan.eta_threshold_ios_exposures_lifestage_sizing
 
 -- Consumer-level iOS exposures joined to SCD lifestage at exposure date
+-- select count(1) from METRICS_REPO.PUBLIC.should_enable_percentage_eta_threshold_job_ios_exposures;
+WITH exposure AS
+(SELECT  ee.tag
+               , ee.result
+               , ee.bucket_key
+               , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date) AS day
+               , MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)) EXPOSURE_TIME
+FROM proddb.public.fact_dedup_experiment_exposure ee
+WHERE experiment_name = 'should_enable_percentage_eta_threshold_job'
+AND experiment_version::INT = 5
+AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN '2025-09-10' AND '2025-10-30'
+GROUP BY all
+)
+
+
 create or replace table proddb.fionafan.eta_threshold_ios_exposures_consumer as
+
+
 with raw as (
     select
         bucket_key as consumer_id,
@@ -269,6 +286,7 @@ select
     avg(r_11mo) as r_11mo,
     avg(r_12mo) as r_12mo
 from proddb.fionafan.consumer_first_session_2024_retention_flags
+where r_28d = 1
 group by all
 order by all;
 
@@ -315,11 +333,45 @@ order by all;
 select * from proddb.fionafan.eta_threshold_ios_exposures_consumer_null
 where lifestage is null limit 10;
 
-select * from edw.growth.consumer_growth_accounting_scd3 where consumer_id = '1125900362944067' limit 10;
-select * from proddb.fionafan.consumer_day_orders_20240630_20250930  a
+select * from edw.growth.consumer_growth_accounting_scd3  a 
+inner join proddb.fionafan.eta_threshold_ios_exposures_consumer_null b
+on a.consumer_id = b.consumer_id and b.first_exposure_time >= a.scd_start_date 
+and (b.first_exposure_time <= a.scd_end_date or a.scd_end_date is null)
+where b.lifestage is null ;
+
+limit 10;
+select count(distinct b.consumer_id) from proddb.fionafan.consumer_day_orders_20240630_20250930  a
 inner join proddb.fionafan.eta_threshold_ios_exposures_consumer_null b
 on a.consumer_id = b.consumer_id
 where b.lifestage is null limit 10;
+select count(distinct consumer_id) from proddb.fionafan.eta_threshold_ios_exposures_consumer_null;
+
+create or replace table proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure as (
+select a.*,created_at, datediff('day', created_at, first_exposure_time::date) as days_before_exposure, is_guest
+from proddb.fionafan.eta_threshold_ios_exposures_consumer_null a
+inner join dimension_consumer b
+on a.consumer_id = b.user_id
+where a.lifestage is null
+);
+
+select days_before_exposure, count(distinct consumer_id) 
+from proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure
+group by all
+order by days_before_exposure;
+
+select case when days_before_exposure <0 then 'before_exposure' else 'after_exposure' end as tenure_vs_exposure, is_guest,count(1) 
+from proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure  group by all order by all;
+
+select case when days_before_exposure between 0 and 7 then '0-7 days'
+when days_before_exposure between 8 and 30 then '8-30 days'
+when days_before_exposure between 31 and 90 then '31-90 days'
+when days_before_exposure between 91 and 180 then '91-180 days'
+when days_before_exposure between 181 and 365 then '181-365 days'
+when days_before_exposure > 365 then 'more_than_365_days'
+else 'other' end as tenure_vs_exposure, is_guest,count(1) 
+from proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure where days_before_exposure is not null group by all order by all;
+
+select * from dimension_consumer where user_id = '1125900356179353' limit 10;
 
 select * from 
 select * from proddb.fionafan.eta_threshold_ios_exposures_consumer where consumer_id = '1125900362944067' limit 10;
