@@ -261,28 +261,27 @@ ORDER BY a.tag_name;
 WITH cohort AS (
   SELECT DISTINCT CAST(consumer_id AS STRING) AS target_id,promo_title
   FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
-  WHERE iguazu_timestamp >= current_date  AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date-2  AND iguazu_timestamp < current_date + 1
     AND LOWER(onboarding_type) = 'resurrected_user'
-    -- AND NOT (POSITION('%' IN promo_title) > 0)
+    AND NOT (POSITION('%' IN promo_title) > 0)
 ),
 audience_targets AS (
 select * from proddb.fionafan.post_onboarding_end_promo_audience_tags
 
 )
-SELECT
-  case when (POSITION('%' IN c.promo_title) > 0)is null then 'promo' else 'no promo' end as promo_flag,
-  a.tag_name,
-  -- c.promo_title,
-  COUNT(DISTINCT c.target_id) AS tag_targets,
-FROM audience_targets a
-right JOIN cohort c
-  ON c.target_id = a.target_id
-GROUP BY all
-ORDER BY overlap_targets DESC, a.tag_name;
+-- SELECT
+--   case when (POSITION('%' IN c.promo_title) > 0)is null then 'promo' else 'no promo' end as promo_flag,
+--   a.tag_name,
+--   -- c.promo_title,
+--   COUNT(DISTINCT c.target_id) AS tag_targets
+-- FROM audience_targets a
+-- right JOIN cohort c
+--   ON c.target_id = a.target_id
+-- GROUP BY all;
 select c.*, a.tag_name
 FROM audience_targets a
 right JOIN cohort c
   ON c.target_id = a.target_id
-where a.tag_name  is null;
+where a.tag_name  is  null;
 
 
