@@ -368,8 +368,8 @@ when days_before_exposure between 31 and 90 then '31-90 days'
 when days_before_exposure between 91 and 180 then '91-180 days'
 when days_before_exposure between 181 and 365 then '181-365 days'
 when days_before_exposure > 365 then 'more_than_365_days'
-else 'other' end as tenure_vs_exposure, is_guest,count(1) 
-from proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure where days_before_exposure is not null group by all order by all;
+else 'other' end as tenure_vs_exposure, count(1) 
+from proddb.fionafan.eta_threshold_ios_exposures_consumer_null_days_before_exposure where days_before_exposure >0 group by all order by all;
 
 select * from dimension_consumer where user_id = '1125900356179353' limit 10;
 
