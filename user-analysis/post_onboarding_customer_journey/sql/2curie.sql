@@ -407,7 +407,12 @@ select * from final;
 
 
 select * from proddb.static.action_dimension;
-
+SELECT
+  promo_type
+  , '1970-01-01 00:00:00.000000000' as event_ts 
+  , dim_promo_type
+FROM proddb.static.promo_type_dimension;
+grant all privileges on table proddb.static.onboarding_type_dimension to role public;
 
 create or replace table proddb.static.dd_platform_dimension as (
 select 'ios' as dd_platform, 'ios' as dim_platform
@@ -433,3 +438,56 @@ select 'no promo' as promo_type, 'no promo' as dim_promo_type
 );
 
 select * from metrics_repo.public.onboarding_flow_view_click limit 10;
+
+select distinct dd_platform from metrics_repo.public.onboarding_flow_view_click;
+
+select *from metrics_repo.public.dimension_dd_platform ;
+
+select * from metrics_repo.public. ;
+
+
+
+WITH metric_data AS (
+  /* Fetch experiment exposures */
+  WITH exposure AS (
+    SELECT
+      *
+    FROM METRICS_REPO.PUBLIC.cx_ios_reonboarding__Users_exposures
+  ), onboarding_flow_view_click /* Fetch metric events and dimensions */ AS (
+    SELECT
+      *
+    FROM metrics_repo.public.onboarding_flow_view_click AS onboarding_flow_view_click
+    WHERE
+      CAST(onboarding_flow_view_click.event_ts AS DATETIME) BETWEEN CAST('2025-09-08T20:04:00' AS DATETIME) AND CAST('2025-11-03T20:04:00' AS DATETIME)
+  ), dimension_dd_platform AS (
+    SELECT
+      *
+    FROM metrics_repo.public.dimension_dd_platform AS dimension_dd_platform
+  ), onboarding_flow_view_click_NonWindow_exp_events /* Join exposures with events */ AS (
+    SELECT
+      exposure.*,
+      onboarding_flow_view_click.*,
+      dimension_dd_platform.dim_platform AS dimension_dd_platform_dim_platform
+    FROM exposure
+    LEFT JOIN onboarding_flow_view_click
+      ON TO_CHAR(exposure.bucket_key) = TO_CHAR(onboarding_flow_view_click.device_id)
+      AND exposure.first_exposure_time <= DATEADD(SECOND, 10, onboarding_flow_view_click.event_ts)
+    /* join with dimensions if exist */
+    LEFT JOIN dimension_dd_platform
+      ON TO_CHAR(onboarding_flow_view_click.dd_platform) = TO_CHAR(dimension_dd_platform.dd_platform)
+    WHERE
+      1 = 1
+  ), onboarding_flow_view_click_NonWindow_exp_metrics /* Aggregate events and compute metrics */ AS (
+    SELECT
+      bucket_key,
+      experiment_group,
+      dimension_dd_platform_dim_platform AS dim_platform,
+      COUNT(DISTINCT page_end_page_view_device_id) AS nux_onboarding_page_end_page_view_numerator,
+      COUNT(*) AS nux_onboarding_page_end_page_view_numerator_count
+    FROM onboarding_flow_view_click_NonWindow_exp_events
+    GROUP BY ALL
+    HAVING
+      NOT nux_onboarding_page_end_page_view_numerator IS NULL
+  )
+
+  select distinct dim_platform from metrics_repo.public.dimension_dd_platform;

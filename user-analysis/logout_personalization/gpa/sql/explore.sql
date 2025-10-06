@@ -1,0 +1,1 @@
+select * from proddb.markwu.gpa_metadata_mx_model_training_data limit 10;

@@ -165,6 +165,7 @@ hours_norm AS (
     UPPER(day_of_week) AS day_of_week_abbrev
   FROM edw.merchant.dimension_menu_open_hours
 
+
 ),
 joined AS (
   SELECT
@@ -193,6 +194,55 @@ joined AS (
 SELECT *
 FROM joined
 ORDER BY local_ts);
+
+with durations as (
+select
+  case
+    when end_time_norm >= start_time_norm then datediff('second', start_time_norm, end_time_norm)/3600.0
+    else (datediff('second', start_time_norm, end_time_norm) + 24*3600)/3600.0
+  end as hours_diff
+from proddb.fionafan.special_menu_default_selection_pos_error_induced_cancel_orders a
+)
+select
+  case
+    when hours_diff < 3 then '<3'
+    when hours_diff < 5 then '3-5'
+    when hours_diff <= 10 then '5-10'
+    else '>10'
+  end as hours_bucket,
+  count(*) as cnt
+from durations
+group by all
+order by case hours_bucket when '<3' then 1 when '3-5' then 2 when '5-10' then 3 else 4 end
+;
+
+
+with durations as (
+select
+  case
+    when end_time_norm >= start_time_norm then datediff('second', start_time_norm, end_time_norm)/3600.0
+    else (datediff('second', start_time_norm, end_time_norm) + 24*3600)/3600.0
+  end as hours_diff
+from (
+  select
+    cast(case when start_time in ('24:00:00','24:00') then '00:00:00' else start_time end as time) as start_time_norm,
+    cast(case when end_time   in ('24:00:00','24:00') then '23:59:59' else end_time   end as time) as end_time_norm
+  from edw.merchant.dimension_menu_open_hours
+)
+)
+select
+  case
+    when hours_diff < 3 then '<3'
+    when hours_diff < 5 then '3-5'
+    when hours_diff <= 10 then '5-10'
+    else '>10'
+  end as hours_bucket,
+  count(*) as cnt
+from durations
+group by all
+order by case hours_bucket when '<3' then 1 when '3-5' then 2 when '5-10' then 3 else 4 end
+;
+
 
 select b.experiment_group, is_active,count(1)
 from edw.merchant.dimension_menu a
@@ -427,7 +477,7 @@ select * from proddb.fionafan.document_index_community;
 select * from proddb.fionafan.chunk_index_community;
 
 
-create or replace table proddb.fionafan.special_menu_default_selection_pos_error_induced_cancel_orders_reason_top_stores_business_name as (
+create or replace table proddb.public.stores_to_ban as (
 select business_id, business_name, store_id from dimension_store where business_name in (
   'Burger King',
   'Chili''s Grill & Bar',
@@ -521,4 +571,19 @@ select business_id, business_name, store_id from dimension_store where business_
   'Boost Juice Glenrose',
   'Boost Juice Cronulla'
 ) 
+);
+
+
+select distinct business_id, business_name from proddb.fionafan.stores_to_ban ;
+
+select count(1) from proddb.fionafan.stores_to_ban ;
+grant all privileges on table proddb.public.stores_to_ban to role public;
+
+select business_name, count(distinct business_id) cnt from proddb.fionafan.stores_to_ban group by all order by cnt desc;
+
+
+select a.store_id,  a.store_address from dimension_store a
+inner join (select distinct store_id from proddb.fionafan.special_menu_default_selection_pos_error_induced_cancel_orders) b
+on a.store_id = b.store_id
+where business_name = 'Burger King';
 

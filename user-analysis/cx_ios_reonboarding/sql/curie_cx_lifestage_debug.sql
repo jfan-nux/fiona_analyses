@@ -226,7 +226,7 @@ WITH events AS (
   WHERE iguazu_timestamp::DATE BETWEEN {{start_date}}::DATE AND {{end_date}}::DATE
 )
 SELECT
-  e.consumer_id,
+  TRIM(TO_VARCHAR(TO_NUMBER(e.consumer_id))) as consumer_id,
   e.dd_device_id as device_id,
   e.event_ts,
   e.dd_platform,

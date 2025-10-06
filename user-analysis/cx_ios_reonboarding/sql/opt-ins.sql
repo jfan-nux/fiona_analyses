@@ -80,14 +80,10 @@ LEFT JOIN email_scd es
 LEFT JOIN sms_scd ss
   ON ss.consumer_id = b.consumer_id
  AND b.asof_date BETWEEN ss.scd_start_date AND COALESCE(ss.scd_end_date, '9999-12-31');
-select * from proddb.public.onboarding_funnel_flags_w_optins_curr limit 10;
-
--- edw.consumer.dimension_consumer_email_settings_scd3 
-
-
-
--- edw.consumer.dimension_consumer_sms_settings_scd3 
-
+select day, count(1) 
+from proddb.public.onboarding_funnel_flags_w_optins_curr 
+group by all
+order by 1;
 
 
 
@@ -719,6 +715,12 @@ ORDER BY day, dd_platform_onboarding_type, metric_name
 ;
 
 
+select day, count(1) 
+from proddb.fionafan.onboarding_optins_eligibility_unpivot
+group by all
+order by 1;
+
+grant all privileges on proddb.fionafan.onboarding_optins_eligibility_unpivot to public;
 
 WITH normalized AS (
   SELECT
@@ -764,6 +766,7 @@ WITH normalized AS (
     IFF(LOWER(sms_order_updates_status) = 'on', 1, 0)     AS sms_order_updates_eligible,
     IFF(LOWER(sms_marketing_status) = 'on', 1, 0)         AS sms_marketing_eligible
   FROM proddb.public.onboarding_funnel_flags_w_optins_curr
+
 ),
 -- optional: dedup to one row per consumer per day/platform/type to avoid double-counting
 dedup AS (

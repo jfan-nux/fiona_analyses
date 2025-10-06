@@ -128,6 +128,7 @@ end_page_promo_view AS (
 end_page_promo_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice
+
   WHERE iguazu_timestamp >= current_date - 14 AND iguazu_timestamp < current_date + 1
     AND POSITION('%' IN promo_title) > 0
   GROUP BY 1,2

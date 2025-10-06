@@ -106,7 +106,9 @@ select
 from proddb.fionafan.first_session_lifestage_conv28d
 
 group by lifestage
-order by conv_28d desc;
+order by lifestage desc;
+
+
 
 
 -- Consumer-level retention after first session (2024 cohort): 28d and 2–12 months

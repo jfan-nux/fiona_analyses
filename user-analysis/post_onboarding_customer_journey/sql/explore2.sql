@@ -285,3 +285,122 @@ right JOIN cohort c
 where a.tag_name  is  null;
 
 
+
+
+-- v2: Overlap of specified audience tags with NUX reonboarding eligible set (new promo set)
+create or replace table proddb.fionafan.post_onboarding_end_promo_audience_tags_v2 as (
+
+WITH tags(tag_name) AS (
+  SELECT column1 FROM VALUES
+    ('ep_consumer_dormant_late_bloomers_us_v1'),
+    ('ep_consumer_dormant_winback_us_v1'),
+    ('ep_consumer_dewo_phase2_us_v1'),
+    ('ep_consumer_dewo_phase3_us_v1'),
+    ('ep_consumer_dewo_phase1_retarget_us_v1'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p1_active'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p1_dormant'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p2_active_active'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p2_active_dormant'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p2_dormant_active'),
+    ('ep_consumer_ml_churn_prevention_us_v1_p2_dormant_dormant'),
+    ('ep_consumer_dormant_churned_browsers_us_v1'),
+    ('ep_consumer_enhanced_rxauto_90d_us_v1'),
+    ('ep_consumer_enhanced_rxauto_120d_test_us_v1'),
+    ('ep_consumer_enhanced_rxauto_150day_test_us_v1'),
+    ('ep_consumer_enhanced_rxauto_180day_test_us_v1'),
+    ('ep_consumer_churned_btm_pickup_exclude_test_us_v1'),
+    ('ep_consumer_churned_latebloomers_auto_ctc_test_us'),
+    ('ep_consumer_rx_reachability_auto_us'),
+    ('ep_consumer_repeatchurned_us'),
+    ('ep_consumer_very_churned_low_vp_us_v1'),
+    ('ep_consumer_very_churned_med_vp_us_v1'),
+    ('ep_consumer_super_churned_low_vp_us_v1'),
+    ('ep_consumer_super_churned_med_vp_us_v1'),
+    ('ep_consumer_churned_low_vp_us_v1'),
+    ('ep_consumer_churned_med_vp_us_v1')
+),
+audience_targets AS (
+  SELECT LOWER(tag_name) AS tag_name, CAST(target_id AS STRING) AS target_id
+  FROM audience_service.public.cassandra_tags_by_target
+
+  WHERE LOWER(tag_name) IN (SELECT LOWER(tag_name) FROM tags)
+)
+select * from audience_targets);
+
+create or replace table proddb.fionafan.post_onboarding_end_promo_audience_tags_v2 as (
+
+
+select * from audience_service.public.cassandra_tags_by_target
+where lower(tag_name) in (
+'ep_consumer_super_churned_med_vp_us_v1_t1',
+'ep_consumer_ml_churn_prevention_us_v2_p1_active_t1',
+'ep_consumer_super_churned_low_vp_us_v1_t1',
+'ep_consumer_enhanced_rxauto_180day_test_us_v1_t1',
+'ep_consumer_enhanced_rxauto_120d_test_us_v1_t2',
+'ep_consumer_rx_reachability_auto_us_t1',
+'ep_consumer_dormant_churned_browsers_us_v1_t1',
+'ep_consumer_enhanced_rxauto_150day_test_us_v1_t1',
+'ep_consumer_churned_med_vp_us_v1_t1',
+'ep_consumer_enhanced_rxauto_90d_us_v1_t1',
+'ep_consumer_repeatchurned_us_challenges_t3_0_v2',
+'ep_consumer_churned_latebloomers_auto_ctc_test_us_v1_t1',
+'ep_consumer_very_churned_med_vp_us_v1_t1',
+'ep_consumer_ml_churn_prevention_us_v2_p2_active_active_t1',
+'ep_consumer_churned_low_vp_us_v1_t2',
+'ep_consumer_churned_low_vp_us_v1_t1',
+'ep_consumer_dewo_phase3_us_v1_t1',
+'ep_consumer_dormant_late_bloomers_us_v1_t1',
+'ep_consumer_dewo_phase1_retarget_us_v1_t1',
+'ep_consumer_dewo_phase2_us_v1_t1',
+'ep_consumer_repeatchurned_us_challenges_t3_1_v2',
+'ep_consumer_ml_churn_prevention_us_v2_p2_dormant_dormant_t1',
+'ep_consumer_dormant_winback_us_v1_t1',
+'ep_consumer_ml_churn_prevention_us_v2_p1_dormant_t1',
+'ep_consumer_ml_churn_prevention_us_v2_p2_active_dormant_t1',
+'ep_consumer_repeatchurned_us_challenges_t3_2_v2',
+'ep_consumer_repeatchurned_us_challenges_t3_complete_v2',
+'ep_consumer_ml_churn_prevention_us_v2_p2_dormant_active_t1'
+)
+);
+select tag_name, count(1) cnt from proddb.fionafan.post_onboarding_end_promo_audience_tags_v2 group by all;
+with nux_targets AS (
+  SELECT DISTINCT CAST(target_id AS STRING) AS target_id
+  FROM audience_service.public.cassandra_tags_by_target
+  WHERE LOWER(tag_name) = 'nux_reonboarding_ms1_eligible'
+)
+SELECT
+  a.tag_name,
+  COUNT(1) AS tag_targets,
+  COUNT(CASE WHEN n.target_id IS NOT NULL THEN 1 END) AS overlap_targets,
+  ROUND(COUNT( CASE WHEN n.target_id IS NOT NULL THEN 1 END) * 100.0 / NULLIF(COUNT(1), 0), 2) AS overlap_pct
+FROM proddb.fionafan.post_onboarding_end_promo_audience_tags_v2 a
+right JOIN nux_targets n
+  ON n.target_id = a.target_id
+GROUP BY a.tag_name
+ORDER BY a.tag_name;
+
+-- v2: Overlap of all non-NUX audience tags with resurrected_user, show_promo = 'no' cohort (last 1 day)
+WITH cohort AS (
+  SELECT DISTINCT CAST(consumer_id AS STRING) AS target_id,promo_title, min(iguazu_timestamp) as min_iguazu_timestamp
+  FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
+  WHERE iguazu_timestamp >= current_date-2  AND iguazu_timestamp < current_date + 1
+    AND LOWER(onboarding_type) = 'resurrected_user'
+    group by all
+    -- AND NOT (POSITION('%' IN promo_title) > 0)
+),
+audience_targets AS (
+select * from proddb.fionafan.post_onboarding_end_promo_audience_tags_v2
+
+),
+result_pre as (
+select c.*, a.tag_name
+FROM audience_targets a
+right JOIN cohort c
+  ON c.target_id = a.target_id
+)
+-- select tag_name, case when tag_name is not null then 'matched' else 'not matched' end as matched_flag
+-- , case when position('%' in promo_title) > 0 then 'promo' else 'no promo' end as promo_flag, count(1) cnt
+-- from result_pre  group by all order by all;
+select * from result_pre where tag_name is not null and position('%' in promo_title) <=0;
+
+

@@ -122,6 +122,12 @@ select * from views_with_market_tier;
 select container_name, experiment_group, avg(vertical_position), count(distinct consumer_id) from proddb.fionafan.fny_views_experiment where container_name ILIKE 'fastest near you' group by all;
 
 select * from proddb.fionafan.fny_views_experiment where consumer_id = '1125900347207576' limit 10;
+
+select experiment_group,  count(distinct store_id) from proddb.fionafan.fny_views_experiment  where container_name ILIKE 'fastest near you' and lifestage = 'Very Churned'  group by all;
+select lift_stage, experiment_group,  count(distinct store_id) from proddb.fionafan.fny_exposure_order_rates where container_name ILIKE 'fastest near you' group by all;
+
+select 876573/876406-1;
+select 663828/651830-1;
 select store_display_asap_time, count(distinct consumer_id) as users
 from proddb.fionafan.fny_views_experiment
 where container_name ilike '%faster%'
@@ -130,6 +136,7 @@ group by all;
 select vertical_position, count(1) from proddb.fionafan.fny_views_experiment group by all;
 -- Post-exposure order rates at exposure (consumer) level
 create or replace table proddb.fionafan.fny_exposure_order_rates as
+
 with base as (
     select distinct
         e.consumer_id,
@@ -364,6 +371,7 @@ select
    / nullif(avg(case when lower(experiment_group) like 'control%' then order_cnt_24h_same_store end), 0)) as lift_treatment_over_control,
   ((avg(case when lower(experiment_group) not like 'control%' then order_cnt_24h_same_store end)
     / nullif(avg(case when lower(experiment_group) like 'control%' then order_cnt_24h_same_store end), 0)) - 1) as lift_pct
+
 from with_tz
 -- where lifestage = 'Very Churned'
 group by all order by all;
@@ -404,7 +412,8 @@ with base as (
       store_id,
       date_trunc('day', view_ts)                  as view_day,
       min(view_ts)                                as first_view_ts,
-      count(*)                                    as view_events
+      count(*)                                    as view_events,
+      count(case when container_name ilike '%fastest near you%' then 1 end) as fny_view_events
   from proddb.fionafan.fny_views_experiment
   where container_name ilike 'fastest near you'
   group by consumer_id::string, store_id, date_trunc('day', view_ts)
