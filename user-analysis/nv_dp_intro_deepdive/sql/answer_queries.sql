@@ -745,3 +745,19 @@ order by 1, 2
 select * from proddb.fionafan.nv_dp_new_user_orders_performance order by 1,2;
 
 
+
+SELECT distinct dd_platform
+from iguazu.consumer.m_onboarding_start_promo_page_view_ice
+WHERE convert_timezone('UTC','America/Los_Angeles', iguazu_timestamp) BETWEEN current_date -14 AND current_date
+and lower(onboarding_type) = 'resurrected_user'
+-- and page = 'welcomeBack'
+and click_type = 'primary';
+
+
+select click_type, count(1) cnt
+FROM iguazu.consumer.M_onboarding_page_click_ice
+  WHERE iguazu_timestamp BETWEEN current_date -14 AND current_date
+    AND lower(onboarding_type) = 'resurrected_user'
+    AND lower(page) = 'welcomeback'
+    AND lower(dd_platform) = 'ios'
+group by all;

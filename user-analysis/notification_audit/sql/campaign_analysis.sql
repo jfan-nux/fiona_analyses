@@ -40,15 +40,17 @@ select distinct lifestage, lifestage_bucket from edw.growth.consumer_growth_acco
 
 create or replace table proddb.fionafan.notif_new_user_table as (
 
-
 SELECT  DISTINCT  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE_ID
                         else 'dx_'||DD_DEVICE_ID end), '-') AS dd_device_ID_filtered
       , iguazu_timestamp as join_time
       , cast(iguazu_timestamp as date) AS day
       , consumer_id
 from iguazu.consumer.m_onboarding_start_promo_page_view_ice
+
 WHERE iguazu_timestamp BETWEEN '2025-07-23'::date-30 AND '2025-07-23'
 );
+
+-- select onboarding_type from iguazu.consumer.m_onboarding_start_promo_page_view_ice limit 10;
 
 -- select count(1) from proddb.fionafan.notif_new_user_table;
 create or replace table proddb.fionafan.notif_base_table_week as (
@@ -56,7 +58,6 @@ SELECT
   n.*, u.join_time, u.day as join_day, 
   FLOOR(DATEDIFF(day, u.join_time, n.SENT_AT_DATE) / 7) + 1 AS LIFECYCLE_WEEK
 FROM edw.consumer.fact_consumer_notification_engagement n
-
 inner join proddb.fionafan.notif_new_user_table u on n.consumer_id = u.consumer_id
 WHERE 1=1
   AND n.SENT_AT_DATE >= '2025-07-23'::date-30
@@ -65,6 +66,9 @@ WHERE 1=1
 and n.sent_at_date <= DATEADD('day', 30, u.join_time)
   );
 
+select count(distinct consumer_id) from proddb.fionafan.notif_new_user_table limit 10;
+select * from edw.consumer.fact_consumer_notification_engagement where consumer_id = '2096649407';
+select count(distinct consumer_id) from proddb.fionafan.notif_base_table_week limit 10;
 create or replace table proddb.fionafan.notif_base_table_w_braze_week as (
 
 with ct as (

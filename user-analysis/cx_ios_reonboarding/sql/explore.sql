@@ -94,3 +94,6 @@ from program_counts p
 join bucket_totals b
   on b.event_recency_bucket = p.event_recency_bucket
 order by b.bucket_cnt desc, p.program_cnt desc, p.program_name;
+
+
+select max(day) from proddb.public.onboarding_funnel_flags_curr;

@@ -34,3 +34,11 @@ on a.creator_id = b.bucket_key
 
 
 limit 10;
+
+
+now I want to export the result for fny_ms2_ios_july_25 from curie to google sheet. I want thje following metrics:
+consumers_mau
+dsmp_order_rate
+gov_per_order_curie
+hqdr_ratio,
+mx_takehome_pay_7d,
