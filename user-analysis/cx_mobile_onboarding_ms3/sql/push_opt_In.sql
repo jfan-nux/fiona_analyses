@@ -308,3 +308,82 @@ SELECT
 from metrics
 ;
 
+
+
+
+WITH params AS (
+  SELECT
+    'cx_mobile_onboarding_ms3' AS exp_name,
+    DATE '2025-09-23'            AS start_date,
+    current_date                 AS end_date,
+    1                            AS version,
+    'iOS'                        AS segment
+),
+
+experiment AS (
+  SELECT
+    replace(lower(
+      CASE WHEN bucket_key LIKE 'dx_%' THEN bucket_key ELSE 'dx_' || bucket_key END
+    ), '-') AS dd_device_ID_filtered,
+    bucket_key,
+    max(a.result) AS bucket,
+    CAST(min(a.exposure_time) AS date) AS first_exposure_date_utc,
+    min(convert_timezone('UTC','America/Los_Angeles', a.exposure_time)) AS first_exposure_time,
+    CAST(min(convert_timezone('UTC','America/Los_Angeles', a.exposure_time)) AS date) AS first_exposure_date
+  FROM proddb.public.fact_dedup_experiment_exposure  a
+  CROSS JOIN params p
+  WHERE experiment_name = p.exp_name
+    AND CAST(experiment_version AS INTEGER) = p.version
+    AND a.segment = p.segment
+    AND convert_timezone('UTC','America/Los_Angeles', a.exposure_time) BETWEEN p.start_date AND p.end_date
+  GROUP BY 1,2
+  HAVING count(distinct a.result) = 1
+),
+
+device_level_temp AS (
+  SELECT
+    replace(lower(
+      CASE WHEN device_id LIKE 'dx_%' THEN device_id ELSE 'dx_' || device_id END
+    ), '-') AS dd_device_ID_filtered,
+    scd_start_date AS event_ts,
+    CASE WHEN system_level_status = 'off' AND coalesce(prev_system_level_status, '') <> 'on' THEN 1 ELSE 0 END AS system_push_opt_out,
+    CASE WHEN system_level_status = 'on'  AND coalesce(prev_system_level_status, '') <> 'on' THEN 1 ELSE 0 END AS system_push_opt_in
+  FROM edw.consumer.dimension_consumer_device_push_settings_scd3
+  CROSS JOIN params p
+  WHERE CAST(scd_start_date AS date) BETWEEN p.start_date AND p.end_date
+    AND experience = 'doordash'
+),
+
+device_level AS (
+  SELECT
+    dd_device_ID_filtered,
+    event_ts,
+    max(system_push_opt_out) AS system_push_opt_out,
+    max(system_push_opt_in)  AS system_push_opt_in
+  FROM device_level_temp
+  GROUP BY 1,2
+),
+
+exp_rollup AS (   -- renamed from "rollup" to avoid keyword conflict
+  SELECT
+    a.dd_device_ID_filtered,
+    a.bucket_key,
+    a.bucket,
+    b.event_ts,
+    coalesce(b.system_push_opt_out, 0) AS system_level_push_opt_out,
+    coalesce(b.system_push_opt_in,  0) AS system_level_push_opt_in
+  FROM experiment a
+  LEFT JOIN device_level b
+    ON a.dd_device_ID_filtered = b.dd_device_ID_filtered
+)
+
+SELECT
+  bucket,
+  count(distinct dd_device_ID_filtered)                                         AS total_cx,
+  sum(system_level_push_opt_out)                                                AS system_level_push_opt_out,
+  (sum(system_level_push_opt_out) * 1.0) / NULLIF(count(distinct dd_device_ID_filtered),0) AS system_level_push_opt_out_pct,
+  sum(system_level_push_opt_in)                                                 AS system_level_push_opt_in,
+  (sum(system_level_push_opt_in) * 1.0) / NULLIF(count(distinct dd_device_ID_filtered),0)  AS system_level_push_opt_in_pct
+FROM exp_rollup
+GROUP BY bucket
+ORDER BY bucket;

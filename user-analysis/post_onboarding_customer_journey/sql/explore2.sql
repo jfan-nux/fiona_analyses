@@ -269,15 +269,15 @@ audience_targets AS (
 select * from proddb.fionafan.post_onboarding_end_promo_audience_tags
 
 )
--- SELECT
---   case when (POSITION('%' IN c.promo_title) > 0)is null then 'promo' else 'no promo' end as promo_flag,
---   a.tag_name,
---   -- c.promo_title,
---   COUNT(DISTINCT c.target_id) AS tag_targets
--- FROM audience_targets a
--- right JOIN cohort c
---   ON c.target_id = a.target_id
--- GROUP BY all;
+SELECT
+  case when (POSITION('%' IN c.promo_title) > 0)is null then 'promo' else 'no promo' end as promo_flag,
+  a.tag_name,
+  -- c.promo_title,
+  COUNT(DISTINCT c.target_id) AS tag_targets
+FROM audience_targets a
+right JOIN cohort c
+  ON c.target_id = a.target_id
+GROUP BY all;
 select c.*, a.tag_name
 FROM audience_targets a
 right JOIN cohort c
@@ -391,6 +391,7 @@ WITH cohort AS (
 audience_targets AS (
 select * from proddb.fionafan.post_onboarding_end_promo_audience_tags_v2
 
+
 ),
 result_pre as (
 select c.*, a.tag_name
@@ -401,6 +402,31 @@ right JOIN cohort c
 -- select tag_name, case when tag_name is not null then 'matched' else 'not matched' end as matched_flag
 -- , case when position('%' in promo_title) > 0 then 'promo' else 'no promo' end as promo_flag, count(1) cnt
 -- from result_pre  group by all order by all;
-select * from result_pre where tag_name is not null and position('%' in promo_title) <=0;
+select * from result_pre where tag_name is not null and position('%' in promo_title) <=0 and tag_name not
+in (
+    'ep_consumer_dormant_churned_browsers_us_v1_t1',
+    'ep_consumer_repeatchurned_us_challenges_t3_0_v2',
+    'ep_consumer_churned_low_vp_us_v1_t2',
+    'ep_consumer_dewo_phase3_us_v1_t1',
+    'ep_consumer_repeatchurned_us_challenges_t3_1_v2',
+    'ep_consumer_repeatchurned_us_challenges_t3_2_v2',
+    'ep_consumer_repeatchurned_us_challenges_t3_complete_v2',
+    'ep_consumer_ml_churn_prevention_us_v2_p2_dormant_active_t1'
+)
+;
 
+
+select * from SEGMENT_EVENTS_RAW.CONSUMER_PRODUCTION.ENGAGEMENT_PROGRAM  where program_name in (
+'ep_consumer_churned_latebloomers_auto_ctc_test_us'
+) limit 10;
+
+select * from edw.growth.dimension_engagement_program where program_name ilike '%ep_consumer_churned_latebloomers_auto_ctc_test_us%';
+
+select * from iguazu.server_events_production.consumer_placement_event 
+
+where timestamp >='2024-09-10' and lower(placement_type) ilike '%onboarding%' limit 10;
+
+
+select placement_type, count(1) cnt from iguazu.server_events_production.consumer_placement_event 
+where timestamp >='2025-09-10' group by all;
 
