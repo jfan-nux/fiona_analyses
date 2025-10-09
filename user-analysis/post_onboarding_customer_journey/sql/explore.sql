@@ -18,7 +18,7 @@ select * from tyleranderson.sessions where event_date between '2025-08-01' and '
 select source_page, page, source, preference_type, count(1) cnt, count(distinct consumer_id) cc from iGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE where iguazu_timestamp>= '2025-08-25' group by all;
 
 
-select * from IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE where page = 'onboarding_preference_page' limit 100 ;
+select source_page, page, source, preference_type, entity_id, entity_type from IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE where page = 'onboarding_preference_page' limit 100 ;
 
 select * from IGUAZU.CONSUMER.M_PREFERENCE_TOGGLE_ICE where page = 'onboarding_preference_page' and consumer_id = '1964336184' limit 100 ;
 with base as (select consumer_id, entity_id, count(1) cnt 
