@@ -8,7 +8,10 @@ create or replace table proddb.fionafan.speed_store_card_and_row_experiment_expo
 select * from METRICS_REPO.PUBLIC.speed_store_card_and_row_experiment__ios_Users_exposures
 where experiment_group in ('treatment3','control')
 );
+
 select count(1) from proddb.fionafan.speed_store_card_and_row_experiment_exposures;
+
+
 
 -- estimated time for delivery vs actual time for delivery, how does the gap change over day for treatment and control, and overall separately?
 
@@ -130,6 +133,14 @@ select * from proddb.fionafan.speed_store_card_and_row_experiment_tagged_stores 
 
 );
 
+select case when speed_type_pct=1 then 1 else 0 end as never_tagged, count(1) cnt 
+from proddb.fionafan.speed_store_card_and_row_experiment_tagged_stores where is_fast = 0 group by all order by never_tagged desc;
+
+NEVER_TAGGED	CNT
+1	343845
+0	484553
+
+select 1-343845/(343845+484553)
 
 create or replace table proddb.fionafan.speed_store_card_and_row_experiment_tagged_stores_rx_non_fast_Restaurants as (
 select * from proddb.fionafan.speed_store_card_and_row_experiment_tagged_stores where is_fast = 0 and speed_type_pct>0.95
