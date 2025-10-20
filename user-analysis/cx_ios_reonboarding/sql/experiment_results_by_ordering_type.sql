@@ -1,0 +1,118 @@
+SET exp_name = 'cx_ios_reonboarding';
+SET start_date = '2025-09-08';
+SET end_date = CURRENT_DATE;
+SET version = 1;
+SET segment = 'Users';
+
+--------------------- experiment exposure with user ordering type
+WITH exposure AS (
+    SELECT 
+        e.tag,
+        e.result,
+        e.bucket_key,
+        e.dd_device_id_filtered,
+        e.consumer_id,
+        e.day,
+        e.exposure_time,
+        COALESCE(umb.user_ordering_type, 'no previous order 180 prior to churn') AS user_ordering_type
+    FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures e
+    LEFT JOIN proddb.fionafan.cx_ios_reonboarding_user_merchant_behavior umb
+        ON e.consumer_id = umb.consumer_id
+    WHERE e.day BETWEEN $start_date AND $end_date
+)
+
+, orders AS (
+    SELECT DISTINCT 
+        a.DD_DEVICE_ID,
+        replace(lower(CASE WHEN a.DD_device_id like 'dx_%' then a.DD_device_id
+                    else 'dx_'||a.DD_device_id end), '-') AS dd_device_id_filtered,
+        convert_timezone('UTC','America/Los_Angeles',a.timestamp)::date as day,
+        dd.delivery_ID,
+        dd.is_first_ordercart_DD,
+        dd.is_filtered_core,
+        dd.variable_profit * 0.01 AS variable_profit,
+        dd.gov * 0.01 AS gov
+    FROM segment_events_raw.consumer_production.order_cart_submit_received a
+        JOIN dimension_deliveries dd
+        ON a.order_cart_id = dd.order_cart_id
+        AND dd.is_filtered_core = 1
+        AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN $start_date AND $end_date
+    WHERE convert_timezone('UTC','America/Los_Angeles',a.timestamp) BETWEEN $start_date AND $end_date
+)
+
+, checkout AS (
+    SELECT  
+        e.tag,
+        e.user_ordering_type,
+        COUNT(distinct e.dd_device_id_filtered) as exposure_onboard,
+        COUNT(DISTINCT CASE WHEN is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) orders,
+        COUNT(DISTINCT CASE WHEN is_first_ordercart_DD = 1 AND is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) new_Cx,
+        COUNT(DISTINCT CASE WHEN is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) /  COUNT(DISTINCT e.dd_device_id_filtered) order_rate,
+        COUNT(DISTINCT CASE WHEN is_first_ordercart_DD = 1 AND is_filtered_core = 1 THEN o.delivery_ID ELSE NULL END) /  COUNT(DISTINCT e.dd_device_id_filtered) new_cx_rate,
+        SUM(variable_profit) AS variable_profit,
+        SUM(variable_profit) / COUNT(DISTINCT e.dd_device_id_filtered) AS VP_per_device,
+        SUM(gov) AS gov,
+        SUM(gov) / COUNT(DISTINCT e.dd_device_id_filtered) AS gov_per_device
+    FROM exposure e
+    LEFT JOIN orders o
+        ON e.dd_device_id_filtered = o.dd_device_id_filtered 
+        AND e.day <= o.day
+    WHERE TAG NOT IN ('internal_test','reserved')
+    GROUP BY ALL
+    ORDER BY 1,2
+)
+
+, MAU AS (
+    SELECT  
+        e.tag,
+        e.user_ordering_type,
+        COUNT(DISTINCT o.dd_device_id_filtered) as MAU,
+        COUNT(DISTINCT o.dd_device_id_filtered) / COUNT(DISTINCT e.dd_device_id_filtered) as MAU_rate
+    FROM exposure e
+    LEFT JOIN orders o
+        ON e.dd_device_id_filtered = o.dd_device_id_filtered 
+        AND o.day BETWEEN DATEADD('day',-28,current_date) AND DATEADD('day',-1,current_date) -- past 28 days orders
+    GROUP BY ALL
+    ORDER BY 1,2
+)
+
+, res AS (
+    SELECT 
+        c.*,
+        m.MAU,
+        m.mau_rate
+    FROM checkout c
+    JOIN MAU m 
+        ON c.tag = m.tag 
+        AND c.user_ordering_type = m.user_ordering_type
+    ORDER BY 1,2
+)
+
+SELECT 
+    r1.tag,
+    r1.user_ordering_type,
+    r1.exposure_onboard,
+    r1.orders,
+    r1.order_rate,
+    r1.order_rate / NULLIF(r2.order_rate,0) - 1 AS Lift_order_rate,
+    r1.new_cx,
+    r1.new_cx_rate,
+    r1.new_cx_rate / NULLIF(r2.new_cx_rate,0) - 1 AS Lift_new_cx_rate,
+    r1.variable_profit,
+    r1.variable_profit / nullif(r2.variable_profit,0) - 1 AS Lift_VP,
+    r1.VP_per_device,
+    r1.VP_per_device / nullif(r2.VP_per_device,0) -1 AS Lift_VP_per_device,
+    r1.gov,
+    r1.gov / r2.gov - 1 AS Lift_gov,
+    r1.gov_per_device,
+    r1.gov_per_device / r2.gov_per_device -1 AS Lift_gov_per_device,
+    r1.mau,
+    r1.mau_rate,
+    r1.mau_rate / nullif(r2.mau_rate,0) - 1 AS Lift_mau_rate
+FROM res r1
+LEFT JOIN res r2
+    ON r1.tag != r2.tag
+    AND r1.user_ordering_type = r2.user_ordering_type
+    AND r2.tag = 'control'
+ORDER BY 2,1;
+

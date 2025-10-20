@@ -69,7 +69,7 @@ sessions_28d AS (
     datediff('day', c.exposure_time, min(s.iguazu_timestamp)) as days_since_onboarding
   FROM cohort c
   INNER JOIN iguazu.server_events_production.m_store_content_page_load s
-    ON c.consumer_id = s.consumer_id
+    ON c.consumer_id::varchar = s.consumer_id::varchar
     AND s.iguazu_timestamp >= c.exposure_time
     AND s.iguazu_timestamp <= dateadd('day', 28, c.exposure_time)
   GROUP BY all
