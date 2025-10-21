@@ -94,3 +94,22 @@ group by all;
 iguazu.server_events_production.m_store_content_page_load
 ;
 
+
+SELECT
+  n.*,
+  c.LIFESTAGE,
+  FLOOR(DATEDIFF(day, c.first_order_date, n.SENT_AT_DATE) / 7) + 1 AS LIFECYCLE_WEEK
+FROM edw.consumer.fact_consumer_notification_engagement n
+JOIN edw.growth.consumer_growth_accounting_scd3 c
+  ON n.CONSUMER_ID = c.CONSUMER_ID
+  AND n.SENT_AT_DATE >= c.SCD_START_DATE
+  AND (n.SENT_AT_DATE < c.SCD_END_DATE OR c.SCD_END_DATE IS NULL)
+JOIN proddb.public.dimension_consumer dc
+  ON n.CONSUMER_ID = dc.ID
+WHERE 1=1
+  AND c.LIFESTAGE ILIKE 'New Cx'
+  AND n.SENT_AT_DATE >= '2025-07-01'
+  AND n.SENT_AT_DATE < '2025-08-13'
+  AND c.first_order_date >= '2025-07-01'
+  AND c.first_order_date < '2025-07-15'
+  AND dc.DEFAULT_COUNTRY = 'United States'

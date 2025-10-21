@@ -1,0 +1,29 @@
+
+📊 OVERALL TREATMENT EFFECT:
+   • Control: 0.4968
+   • Treatment: 0.4973
+   • ATE: +0.0004 (+0.09%)
+
+📈 T-LEARNER:
+   • CATE range: [-0.7213, 0.6611]
+   • CATE mean: 0.0001 (std: 0.0276)
+   • Qini AUC: 0.054869
+   • Uplift AUC: 0.072844
+
+📈 X-LEARNER:
+   • CATE range: [-0.4469, 0.3924]
+   • CATE mean: 0.0001 (std: 0.0153)
+   • Qini AUC: 0.047454
+   • Uplift AUC: 0.063023
+
+💾 SNOWFLAKE TABLES CREATED:
+   • proddb.fionafan.cx_ios_reonboarding_tlearner_scores
+     Columns: dd_device_id, user_id, tag, result, is_treatment, tlearner_cate, tlearner_quartile
+   
+   • proddb.fionafan.cx_ios_reonboarding_xlearner_scores
+     Columns: dd_device_id, user_id, tag, result, is_treatment, xlearner_cate, xlearner_quartile
+
+📁 OUTPUTS:
+   • 04_model_comparison.csv
+   • 04_tlearner_feature_importance.csv
+   • 04_xlearner_residual_feature_importance.csv

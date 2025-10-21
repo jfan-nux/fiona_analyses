@@ -1,5 +1,5 @@
--- Step 3: Pre-Churn Merchant Affinity Analysis
--- Analyzes which merchants users ordered from before churning
+-- Step 3: Pre-Exposure Merchant Affinity Analysis
+-- Analyzes which merchants users ordered from before exposure (YTD since 2025-01-01)
 -- Identifies "favorite" merchants and ordering patterns
 
 -- Calculate merchant-level metrics for each user
@@ -10,7 +10,6 @@ WITH user_merchant_orders AS (
         tag,
         result,
         exposure_day,
-        last_order_date,
         store_id,
         store_name,
         vertical,
@@ -23,8 +22,8 @@ WITH user_merchant_orders AS (
         AVG(delivery_rating) AS avg_delivery_rating,
         AVG(r2c_duration) AS avg_r2c_duration,
         AVG(d2c_duration) AS avg_d2c_duration
-    FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d
-    GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+    FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd
+    GROUP BY ALL
 ),
 
 user_totals AS (
@@ -34,7 +33,7 @@ user_totals AS (
         COUNT(DISTINCT store_id) AS total_unique_merchants,
         SUM(order_value) AS total_spend,
         COUNT(DISTINCT vertical) AS unique_verticals
-    FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d
+    FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd
     GROUP BY 1
 )
 
@@ -43,7 +42,6 @@ SELECT
     u.tag,
     u.result,
     u.exposure_day,
-    u.last_order_date,
     u.store_id,
     u.store_name,
     u.vertical,
@@ -67,8 +65,8 @@ SELECT
     u.orders_from_merchant * 100.0 / NULLIF(t.total_orders, 0) AS pct_orders_from_merchant,
     u.total_spend_at_merchant * 100.0 / NULLIF(t.total_spend, 0) AS pct_spend_at_merchant,
     
-    -- Calculate recency (days between last order at merchant and last order overall)
-    DATEDIFF('day', u.last_order_date_at_merchant, u.last_order_date) AS days_since_last_merchant_order,
+    -- Calculate recency (days between last order at merchant and exposure)
+    DATEDIFF('day', u.last_order_date_at_merchant, u.exposure_day) AS days_since_last_merchant_order,
     
     -- Rank merchants by order count for each user
     ROW_NUMBER() OVER (PARTITION BY u.consumer_id ORDER BY u.orders_from_merchant DESC, u.total_spend_at_merchant DESC) AS merchant_rank_by_orders
@@ -86,7 +84,6 @@ SELECT
     tag,
     result,
     exposure_day,
-    last_order_date,
     store_id,
     store_name,
     vertical,
@@ -121,11 +118,11 @@ SELECT
     m.result,
     m.exposure_day,
     
-    -- Overall ordering stats
-    MAX(m.total_orders) AS total_orders_180d,
-    MAX(m.total_unique_merchants) AS unique_merchants_180d,
-    MAX(m.total_spend) AS total_spend_180d,
-    MAX(m.unique_verticals) AS unique_verticals_180d,
+    -- Overall ordering stats (YTD pre-exposure)
+    MAX(m.total_orders) AS total_orders_ytd,
+    MAX(m.total_unique_merchants) AS unique_merchants_ytd,
+    MAX(m.total_spend) AS total_spend_ytd,
+    MAX(m.unique_verticals) AS unique_verticals_ytd,
     
     -- Favorite merchants
     COUNT(DISTINCT CASE WHEN f.consumer_id IS NOT NULL THEN m.store_id END) AS num_favorite_merchants,
@@ -166,17 +163,21 @@ GROUP BY 1, 2, 3, 4
 -- Summary: Distribution of user types
 SELECT 
     user_ordering_type,
-    COUNT(DISTINCT consumer_id) AS user_count,SUM(total_orders_180d) AS total_deliveries,SUM(total_spend_180d) AS total_gov,
+    COUNT(DISTINCT consumer_id) AS user_count,
+    SUM(total_orders_ytd) AS total_deliveries,
+    SUM(total_spend_ytd) AS total_gov,
     COUNT(DISTINCT consumer_id) * 100.0 / SUM(COUNT(DISTINCT consumer_id)) OVER () AS pct_users,
-    SUM(total_orders_180d) * 100.0 / SUM(SUM(total_orders_180d)) OVER () AS pct_total_deliveries,
-    SUM(total_spend_180d) * 100.0 / SUM(SUM(total_spend_180d)) OVER () AS pct_total_gov,
-    AVG(total_orders_180d) AS avg_orders,
-    AVG(unique_merchants_180d) AS avg_unique_merchants,
+    SUM(total_orders_ytd) * 100.0 / SUM(SUM(total_orders_ytd)) OVER () AS pct_total_deliveries,
+    SUM(total_spend_ytd) * 100.0 / SUM(SUM(total_spend_ytd)) OVER () AS pct_total_gov,
+    AVG(total_orders_ytd) AS avg_orders,
+    AVG(unique_merchants_ytd) AS avg_unique_merchants,
     AVG(num_favorite_merchants) AS avg_favorite_merchants
 
 FROM proddb.fionafan.cx_ios_reonboarding_user_merchant_behavior
 GROUP BY 1
 ORDER BY user_count DESC;
+
+select consumer_id, count(1) cnt from proddb.fionafan.cx_ios_reonboarding_user_merchant_behavior group by all having cnt>1 limit 10;
 
 -- Summary: Favorite merchant statistics
 SELECT 
@@ -209,14 +210,14 @@ GROUP BY 1, 2, 3
 ORDER BY num_users_favoriting DESC
 LIMIT 20;
 
--- Vertical distribution in pre-churn period
+-- Vertical distribution in pre-exposure period (YTD)
 SELECT 
     vertical,
     COUNT(DISTINCT consumer_id) AS unique_users,
     COUNT(DISTINCT delivery_id) AS total_orders,
     SUM(order_value) AS total_gmv,
     AVG(order_value) AS avg_order_value
-FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d
+FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd
 GROUP BY 1
 ORDER BY total_orders DESC;
 

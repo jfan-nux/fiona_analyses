@@ -35,10 +35,93 @@ FROM (select distinct consumer_id, min(exposure_time) as exposure_time
 ,max(result) as result
 from proddb.fionafan.cx_ios_reonboarding_experiment_exposures group by all) e
 LEFT JOIN edw.growth.consumer_growth_accounting_scd3 scd
-    ON e.consumer_id::string = scd.consumer_id::string
+    ON e.consumer_id::string = scd.consumer_id::string and e.exposure_time >= scd.scd_start_date and e.exposure_time <= scd.scd_end_date
 );
 
-select distinct lifestage from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records;
+create or replace table proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel as (
+
+
+SELECT 
+    a.dd_device_id, 
+    a.user_id,
+    min(b.exposure_time) as exposure_time,
+    
+    -- Funnel step: Store Content Page Visit
+    sum(a.unique_store_content_page_visitor) as store_content_visitor_count,
+    max(case when a.unique_store_content_page_visitor > 0 then 1 else 0 end) as has_store_content_visit,
+    min(case when a.unique_store_content_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_store_content,
+    
+    -- Funnel step: Store Page Visit
+    sum(a.unique_store_page_visitor) as store_page_visitor_count,
+    max(case when a.unique_store_page_visitor > 0 then 1 else 0 end) as has_store_page_visit,
+    min(case when a.unique_store_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_store_page,
+    
+    -- Funnel step: Order Cart Page Visit
+    sum(a.unique_order_cart_page_visitor) as order_cart_visitor_count,
+    max(case when a.unique_order_cart_page_visitor > 0 then 1 else 0 end) as has_order_cart_visit,
+    min(case when a.unique_order_cart_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_order_cart,
+    
+    -- Funnel step: Checkout Page Visit
+    sum(a.unique_checkout_page_visitor) as checkout_visitor_count,
+    max(case when a.unique_checkout_page_visitor > 0 then 1 else 0 end) as has_checkout_visit,
+    min(case when a.unique_checkout_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_checkout,
+    
+    -- Funnel step: Purchase (final conversion)
+    sum(a.unique_purchaser) as purchaser_count,
+    max(case when a.unique_purchaser > 0 then 1 else 0 end) as has_purchase,
+    min(case when a.unique_purchaser > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_purchase,
+    
+    -- Additional helpful context (taking most recent values)
+    max(a.platform) as platform,
+    max(a.app_version) as app_version,
+    max(a.urban_type) as urban_type,
+    max(a.is_dashpass) as is_dashpass,
+    
+    -- Date range metadata
+    min(a.event_date) as first_event_date,
+    max(a.event_date) as last_event_date,
+    count(distinct a.event_date) as num_event_days
+    
+from proddb.public.fact_unique_visitors_full_pt a
+
+inner join proddb.fionafan.cx_ios_reonboarding_experiment_exposures b 
+    on a.dd_device_id = b.bucket_key
+
+where a.event_date >= '2024-01-01'
+    and a.event_date <= date(b.exposure_time)-1  -- only include events before exposure
+
+group by all
+
+);
+select case when b.dd_device_id is null then 1 end, c.is_guest, count(1)
+from proddb.fionafan.cx_ios_reonboarding_experiment_exposures a
+left join proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel b on a.bucket_key = b.dd_device_id 
+left join dimension_Consumer c on a.consumer_id = c.user_id
+-- where b.dd_device_id is null 
+group by all;
+-- group by all;
+
+select * from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel limit 10;
+select count(distinct dd_device_id), count(distinct user_id) from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel;
+
+select * from proddb.public.fact_unique_visitors_full_pt where dd_device_id = 'dx_46148D77-78BA-433B-A96D-0D445ABE3C04';
+select * from dimension_Consumer where user_id = '919756628';
+
+select * from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel where dd_device_id = 'dx_DA4739A5-B06D-4CDD-8F85-BF5494D60BE6';
+select * from proddb.fionafan.cx_ios_reonboarding_experiment_exposures where bucket_key = 'dx_DA4739A5-B06D-4CDD-8F85-BF5494D60BE6';
+
+select count(1),count(distinct dd_device_id), count(distinct user_id) from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel limit 10;
+select distinct lifestage, count(1) from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records group by all;
 
 -- Quick summary of records per user
 SELECT 
@@ -63,7 +146,45 @@ where exposure_day between scd_start_date and scd_end_date
 group by all
 order by cnt desc;
 
+select case when b.consumer_id is not null then 'yes' else 'no' end as has_suma_record, count(1) as cnt, count(distinct a.consumer_id) as cnt_consumer_id from
+(select distinct consumer_id from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records 
+where lifestage = 'Active') a 
+left join edw.consumer.suma_consumers b on a.consumer_id = b.user_id
+group by all;
 
+select b.cnt_dd_device_id_filtered, count(1) as cnt, count(distinct a.consumer_id) as cnt_consumer_id 
+from
+(select distinct consumer_id from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records 
+where lifestage = 'Active') a 
+left join (select distinct 
+consumer_id, count(distinct dd_device_id_filtered) as cnt_dd_device_id_filtered
+from proddb.fionafan.cx_ios_reonboarding_experiment_exposures group by all) b on a.consumer_id = b.consumer_id
+group by all;
+
+
+select b.cnt_dd_device_id_filtered, count(1) as cnt, count(distinct a.consumer_id) as cnt_consumer_id 
+from
+(select distinct consumer_id from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records 
+where lifestage = 'Active') a 
+left join (select distinct 
+consumer_id, count(distinct dd_device_id) as cnt_dd_device_id_filtered
+from seo.public.logged_out_personalization_historical_web_device_id group by all) b on a.consumer_id = b.consumer_id
+group by all;
+
+select b.cnt_dd_device_id, count(1) as cnt, count(distinct a.consumer_id) as cnt_consumer_id 
+from
+(select distinct consumer_id from proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records 
+where lifestage = 'Active') a 
+left join
+(select user_id, count(distinct dd_device_id) as cnt_dd_device_id 
+from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel
+group by all) b on a.consumer_id = b.user_id
+group by all
+;
+select * from proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel;
+
+
+select * from edw.consumer.suma_consumers limit 10;
 -- Create consumer-level lifetime metrics table
 CREATE OR REPLACE TABLE proddb.fionafan.cx_ios_reonboarding_consumer_lifetime_metrics AS (
 
@@ -179,3 +300,130 @@ SELECT
     AVG(num_scd_records) AS avg_num_scd_records,
     AVG(num_distinct_lifestages) AS avg_num_distinct_lifestages
 FROM proddb.fionafan.cx_ios_reonboarding_consumer_lifetime_metrics;
+
+
+-- ================================================================================
+-- USER_ID LEVEL VERSION: cx_ios_reonboarding_exposure_previous_funnel_user_level
+-- ================================================================================
+-- Same structure as cx_ios_reonboarding_exposure_previous_funnel
+-- But joined on consumer_id = user_id instead of dd_device_id = bucket_key
+-- ================================================================================
+
+create or replace table proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel_user_level as (
+WITH exposures_by_consumer AS (
+    SELECT 
+        consumer_id,
+        tag,
+        result,
+        MIN(bucket_key) AS bucket_key,
+        MIN(dd_device_id_filtered) AS dd_device_id_filtered,
+        MIN(exposure_time) as exposure_time,
+        MIN(day) AS exposure_day,
+        COUNT(DISTINCT bucket_key) AS num_devices
+    FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures
+    GROUP BY consumer_id, tag, result
+)
+
+SELECT 
+    a.user_id,
+    b.consumer_id,
+    -- b.bucket_key AS dd_device_id,
+    -- b.dd_device_id_filtered,
+    b.tag,
+    b.result,
+    min(b.exposure_time) as exposure_time,
+    
+    -- Funnel step: Store Content Page Visit
+    sum(a.unique_store_content_page_visitor) as store_content_visitor_count,
+    max(case when a.unique_store_content_page_visitor > 0 then 1 else 0 end) as has_store_content_visit,
+    min(case when a.unique_store_content_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_store_content,
+    
+    -- Funnel step: Store Page Visit
+    sum(a.unique_store_page_visitor) as store_page_visitor_count,
+    max(case when a.unique_store_page_visitor > 0 then 1 else 0 end) as has_store_page_visit,
+    min(case when a.unique_store_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_store_page,
+    
+    -- Funnel step: Order Cart Page Visit
+    sum(a.unique_order_cart_page_visitor) as order_cart_visitor_count,
+    max(case when a.unique_order_cart_page_visitor > 0 then 1 else 0 end) as has_order_cart_visit,
+    min(case when a.unique_order_cart_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_order_cart,
+    
+    -- Funnel step: Checkout Page Visit
+    sum(a.unique_checkout_page_visitor) as checkout_visitor_count,
+    max(case when a.unique_checkout_page_visitor > 0 then 1 else 0 end) as has_checkout_visit,
+    min(case when a.unique_checkout_page_visitor > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_checkout,
+    
+    -- Funnel step: Purchase (final conversion)
+    sum(a.unique_purchaser) as purchaser_count,
+    max(case when a.unique_purchaser > 0 then 1 else 0 end) as has_purchase,
+    min(case when a.unique_purchaser > 0 
+         then datediff(day, a.event_date, b.exposure_time) 
+         else null end) as days_before_exposure_purchase,
+    
+    -- Additional helpful context (taking most recent values)
+    max(a.platform) as platform,
+    max(a.app_version) as app_version,
+    max(a.urban_type) as urban_type,
+    max(a.is_dashpass) as is_dashpass,
+    
+    -- Date range metadata
+    min(a.event_date) as first_event_date,
+    max(a.event_date) as last_event_date,
+    count(distinct a.event_date) as num_event_days
+    
+from proddb.public.fact_unique_visitors_full_pt a
+
+inner join exposures_by_consumer b 
+    on a.user_id::varchar = b.consumer_id::varchar
+
+where a.event_date >= '2024-01-01'
+    and a.event_date <= date(b.exposure_time)-1  -- only include events before exposure
+
+group by all
+
+);
+
+-- Summary stats of the user_id level table
+SELECT 
+    'User-Level Funnel Table Summary' AS metric,
+    COUNT(*) AS total_records,
+    COUNT(DISTINCT user_id) AS unique_users,
+    COUNT(DISTINCT consumer_id) AS unique_consumers,
+    
+    -- Funnel penetration
+    SUM(has_store_content_visit) AS users_with_store_content,
+    SUM(has_store_page_visit) AS users_with_store_page,
+    SUM(has_order_cart_visit) AS users_with_order_cart,
+    SUM(has_checkout_visit) AS users_with_checkout,
+    SUM(has_purchase) AS users_with_purchase,
+    
+    -- Conversion percentages
+    SUM(has_store_content_visit) * 100.0 / COUNT(*) AS pct_store_content,
+    SUM(has_store_page_visit) * 100.0 / COUNT(*) AS pct_store_page,
+    SUM(has_order_cart_visit) * 100.0 / COUNT(*) AS pct_order_cart,
+    SUM(has_checkout_visit) * 100.0 / COUNT(*) AS pct_checkout,
+    SUM(has_purchase) * 100.0 / COUNT(*) AS pct_purchase,
+    
+    -- Average days before exposure (for users with activity)
+
+    AVG(CASE WHEN has_order_cart_visit = 1 THEN days_before_exposure_order_cart END) AS avg_days_since_order_cart,
+    AVG(CASE WHEN has_checkout_visit = 1 THEN days_before_exposure_checkout END) AS avg_days_since_checkout,
+    AVG(CASE WHEN has_purchase = 1 THEN days_before_exposure_purchase END) AS avg_days_since_purchase
+    
+FROM proddb.fionafan.cx_ios_reonboarding_exposure_previous_funnel_user_level;
+
+
+-- ================================================================================
+-- PRE-EXPOSURE FEATURES - USER LEVEL VERSION
+-- ================================================================================
+-- Same as cx_ios_reonboarding_pre_exposure_features but uses user-level funnel
+-- Joins funnel metrics on user_id instead of device_id
+-- ================================================================================

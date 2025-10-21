@@ -1,57 +1,27 @@
--- Step 2: Get the most recent SCD record and pull orders from 180 days before last_order_date
--- This gives us the pre-churn order history at delivery level
 
--- Get the current/most recent SCD record for each user
-CREATE OR REPLACE TABLE proddb.fionafan.cx_ios_reonboarding_current_scd AS (
+-- Get all orders since 2025-01-01 before exposure (delivery level)
+-- Joins directly to experiment exposures based on filtered device_id
+CREATE OR REPLACE TABLE proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd AS (
+
 SELECT 
-    tag,
-    result,
-    dd_device_id_filtered,
-    exposure_day,
-    exposure_time,
-    consumer_id,
-    scd_consumer_id,
-    scd_start_date,
-    scd_end_date,
-    signup_date,
-    first_order_date,
-    last_order_date,
-    lifestage,
-    lifestage_bucket,
-    experience,
-    business_vertical_line,
-    country_id,
-    region_name,
-    submarket_id
-FROM proddb.fionafan.cx_ios_reonboarding_exposure_scd_all_records
-where exposure_day between scd_start_date and scd_end_date 
-);
-
-select count(1), count(distinct consumer_id), count(distinct dd_device_id_filtered) from proddb.fionafan.cx_ios_reonboarding_current_scd;
-
--- Get all orders from 180 days before last_order_date (delivery level)
-CREATE OR REPLACE TABLE proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d AS (
-SELECT 
-    scd.tag,
-    scd.result,
-    scd.consumer_id,
-    scd.scd_consumer_id,
-    scd.dd_device_id_filtered,
-    scd.exposure_day,
-    scd.last_order_date,
-    scd.lifestage,
-    scd.lifestage_bucket,
+    exp.tag,
+    exp.result,
+    exp.consumer_id,
+    exp.bucket_key,
+    REPLACE(LOWER(CASE WHEN exp.bucket_key LIKE 'dx_%' THEN exp.bucket_key ELSE 'dx_'||exp.bucket_key END), '-') as dd_device_id_filtered,
+    exp.exposure_time,
+    date(exp.exposure_time) as exposure_day,
     
     -- Order information
     dd.delivery_id,
     dd.order_cart_id,
     dd.store_id,
     dd.store_name,
-    CONVERT_TIMEZONE('UTC','America/Los_Angeles', dd.actual_order_place_time)::date AS order_date,
-    CONVERT_TIMEZONE('UTC','America/Los_Angeles', dd.actual_order_place_time) AS order_timestamp,
+    CONVERT_TIMEZONE('UTC',TIMEZONE, dd.actual_order_place_time)::date AS order_date,
+    CONVERT_TIMEZONE('UTC',TIMEZONE, dd.actual_order_place_time) AS order_timestamp,
     
-    -- Calculate days before last order
-    DATEDIFF('day', CONVERT_TIMEZONE('UTC','America/Los_Angeles', dd.actual_order_place_time)::date, scd.last_order_date) AS days_before_last_order,
+    -- Calculate days before exposure
+    DATEDIFF('day', CONVERT_TIMEZONE('UTC',TIMEZONE, dd.actual_order_place_time)::date, date(exp.exposure_time)) AS days_before_exposure,
     
     -- Order metrics
     dd.gov / 100.0 AS order_value,
@@ -71,43 +41,43 @@ SELECT
     -- Duration and ratings
     dd.r2c_duration,
     dd.d2c_duration,
-    dd.delivery_rating,
+    dd.delivery_rating
     
-    
-FROM proddb.fionafan.cx_ios_reonboarding_current_scd scd
+FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures exp
 INNER JOIN dimension_deliveries dd
-    ON scd.dd_device_id_filtered = REPLACE(LOWER(CASE WHEN dd.dd_device_id LIKE 'dx_%' 
-                                                       THEN dd.dd_device_id
-                                                       ELSE 'dx_'||dd.dd_device_id END), '-')
+
+    ON REPLACE(LOWER(CASE WHEN exp.bucket_key LIKE 'dx_%' THEN exp.bucket_key ELSE 'dx_'||exp.bucket_key END), '-')
+       = REPLACE(LOWER(CASE WHEN dd.dd_device_id LIKE 'dx_%' THEN dd.dd_device_id ELSE 'dx_'||dd.dd_device_id END), '-')
 WHERE 
-    -- Get orders from 180 days before last_order_date
-    CONVERT_TIMEZONE('UTC','America/Los_Angeles', dd.actual_order_place_time)::date 
-        BETWEEN DATEADD('day', -180, scd.last_order_date) 
-        AND scd.last_order_date
+    -- Get orders since 2025-01-01 up to the day before exposure
+    CONVERT_TIMEZONE('UTC',TIMEZONE, dd.actual_order_place_time)::date >= '2025-01-01'
+    AND CONVERT_TIMEZONE('UTC',TIMEZONE, dd.actual_order_place_time)::date < date(exp.exposure_time)
     -- Only filtered core orders
     AND dd.is_filtered_core = TRUE
 );
 -- Summary statistics
 SELECT 
-    'Pre-Churn Orders (180d)' AS analysis_period,
+    'Pre-Exposure Orders (2025-01-01+)' AS analysis_period,
     COUNT(DISTINCT consumer_id) AS unique_users,
-    COUNT(DISTINCT scd_consumer_id) AS unique_consumers,
+    COUNT(DISTINCT dd_device_id_filtered) AS unique_devices,
     COUNT(DISTINCT delivery_id) AS total_orders,
     COUNT(DISTINCT store_id) AS unique_stores,
     COUNT(*) / COUNT(DISTINCT consumer_id) AS avg_orders_per_user,
     AVG(order_value) AS avg_order_value,
     MEDIAN(order_value) AS median_order_value
-FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d;
+FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd;
 
--- Distribution of orders by time before churn
+-- Distribution of orders by time before exposure
 SELECT 
     CASE 
-        WHEN days_before_last_order BETWEEN 0 AND 30 THEN '0-30 days before'
-        WHEN days_before_last_order BETWEEN 31 AND 60 THEN '31-60 days before'
-        WHEN days_before_last_order BETWEEN 61 AND 90 THEN '61-90 days before'
-        WHEN days_before_last_order BETWEEN 91 AND 120 THEN '91-120 days before'
-        WHEN days_before_last_order BETWEEN 121 AND 150 THEN '121-150 days before'
-        WHEN days_before_last_order BETWEEN 151 AND 180 THEN '151-180 days before'
+        WHEN days_before_exposure BETWEEN 0 AND 7 THEN '0-7 days before'
+        WHEN days_before_exposure BETWEEN 8 AND 14 THEN '8-14 days before'
+        WHEN days_before_exposure BETWEEN 15 AND 30 THEN '15-30 days before'
+        WHEN days_before_exposure BETWEEN 31 AND 60 THEN '31-60 days before'
+        WHEN days_before_exposure BETWEEN 61 AND 90 THEN '61-90 days before'
+        WHEN days_before_exposure BETWEEN 91 AND 120 THEN '91-120 days before'
+        WHEN days_before_exposure BETWEEN 121 AND 180 THEN '121-180 days before'
+        WHEN days_before_exposure > 180 THEN '180+ days before'
         ELSE 'Other'
     END AS time_bucket,
     COUNT(DISTINCT delivery_id) AS order_count,
@@ -115,17 +85,19 @@ SELECT
     COUNT(DISTINCT consumer_id) AS unique_users,
     COUNT(DISTINCT consumer_id) * 100.0 / SUM(COUNT(DISTINCT consumer_id)) OVER() AS unique_users_pct,
     AVG(order_value) AS avg_order_value
-FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_180d
+FROM proddb.fionafan.cx_ios_reonboarding_pre_churn_orders_ytd
 GROUP BY ALL
 ORDER BY 
     CASE 
-        WHEN time_bucket = '0-30 days before' THEN 1
-        WHEN time_bucket = '31-60 days before' THEN 2
-        WHEN time_bucket = '61-90 days before' THEN 3
-        WHEN time_bucket = '91-120 days before' THEN 4
-        WHEN time_bucket = '121-150 days before' THEN 5
-        WHEN time_bucket = '151-180 days before' THEN 6
-        ELSE 7
+        WHEN time_bucket = '0-7 days before' THEN 1
+        WHEN time_bucket = '8-14 days before' THEN 2
+        WHEN time_bucket = '15-30 days before' THEN 3
+        WHEN time_bucket = '31-60 days before' THEN 4
+        WHEN time_bucket = '61-90 days before' THEN 5
+        WHEN time_bucket = '91-120 days before' THEN 6
+        WHEN time_bucket = '121-180 days before' THEN 7
+        WHEN time_bucket = '180+ days before' THEN 8
+        ELSE 9
     END;
 
 

@@ -1,0 +1,270 @@
+================================================================================
+PHASE 4: CAUSAL ANALYSIS
+Heterogeneous Treatment Effects & Uplift Modeling
+================================================================================
+
+[1] Loading cleaned data...
+✓ Loaded 465,206 rows
+  Primary target: has_order_post_exposure
+  Features: 49 continuous, 25 categorical
+
+[2] Preparing Data for Modeling
+--------------------------------------------------------------------------------
+Using for modeling:
+  Continuous: 49
+  Categorical: 19
+
+One-hot encoding categorical features...
+
+Total features after encoding: 85
+  Continuous: 49
+  Dummy variables: 36
+
+Preparing feature matrix...
+  Feature matrix shape: (465206, 85)
+  Missing values: 0 (should be 0)
+
+Data shapes:
+  X (features): (465206, 85)
+  T (treatment): (465206,)
+  y (outcome): (465206,)
+  Treatment rate: 50.0%
+  Outcome rate: 49.699%
+
+[3] Overall Intent-to-Treat (ITT) Effect
+================================================================================
+
+Average Treatment Effect (ATE):
+  Control outcome rate:   0.4975
+  Treatment outcome rate: 0.4965
+  ATE (absolute):         -0.0010
+  Relative lift:          -0.20%
+  t-statistic:            -0.6935
+  p-value:                0.4880
+  Significant (p<0.05):   No
+
+[4] T-Learner: Training Separate Models for Treatment & Control
+================================================================================
+Control model data: (232688, 85)
+Treatment model data: (232518, 85)
+
+Training control model...
+Training treatment model...
+✓ Computed T-Learner CATE
+
+T-Learner CATE distribution:
+count    465206.000000
+mean         -0.001217
+std           0.027184
+min          -0.552712
+25%          -0.009793
+50%          -0.001097
+75%           0.008498
+max           0.589110
+Name: cate_t_learner, dtype: float64
+
+Top 20 Most Important Features (Treatment Model):
+                                        feature  importance
+                          days_since_last_order    0.585906
+                         days_since_first_order    0.247151
+                                 num_event_days    0.027246
+                        tenure_days_at_exposure    0.015808
+                 lifestage_bucket_Non-Purchaser    0.013564
+                          lifestage_Resurrected    0.012089
+                               pct_weeks_active    0.007519
+                        avg_days_between_orders    0.007402
+                  days_before_exposure_purchase    0.005632
+                             orders_late_period    0.005438
+                  days_before_exposure_checkout    0.004254
+                      frequency_total_spend_ytd    0.004076
+             days_before_exposure_store_content    0.004052
+                  days_since_last_funnel_action    0.003601
+                days_before_exposure_store_page    0.003565
+                       merchant_total_spend_ytd    0.003503
+pre_exposure_engagement_level_Medium Engagement    0.003285
+                       store_page_visitor_count    0.002999
+                      stddev_gap_between_orders    0.002990
+                days_before_exposure_order_cart    0.002956
+
+✓ Saved T-Learner feature importance
+
+[5] Uplift Analysis: Who Benefits Most from Treatment?
+================================================================================
+
+Uplift by Quartile:
+--------------------------------------------------------------------------------
+
+Q1 (Lowest):
+  N: 116,389
+  Control rate:   0.5425
+  Treatment rate: 0.4549
+  Observed lift:  -0.0876 (-16.16%)
+  Predicted uplift: -0.0280
+
+Q2:
+  N: 116,232
+  Control rate:   0.5556
+  Treatment rate: 0.5432
+  Observed lift:  -0.0123 (-2.22%)
+  Predicted uplift: -0.0050
+
+Q3:
+  N: 116,288
+  Control rate:   0.4643
+  Treatment rate: 0.4719
+  Observed lift:  +0.0076 (+1.63%)
+  Predicted uplift: +0.0035
+
+Q4 (Highest):
+  N: 116,297
+  Control rate:   0.4274
+  Treatment rate: 0.5159
+  Observed lift:  +0.0886 (+20.73%)
+  Predicted uplift: +0.0247
+
+✓ Saved uplift quartile analysis
+
+[6] Subgroup Analysis: Treatment Effects by Segments
+================================================================================
+
+[7.1] Lifestage (lifestage)
+--------------------------------------------------------------------------------
+  Very Churned                  : N=232,082, Control=44.420%, Treatment=44.528%, Lift= +0.24%
+  Active                        : N=78,051, Control=73.852%, Treatment=73.619%, Lift= -0.32%
+  New Cx                        : N= 1,092, Control=59.176%, Treatment=57.348%, Lift= -3.09%
+  Dormant                       : N=50,946, Control=58.177%, Treatment=57.467%, Lift= -1.22%
+  Non-Purchaser                 : N=52,461, Control=28.709%, Treatment=28.118%, Lift= -2.06%
+  Churned                       : N=45,291, Control=49.640%, Treatment=49.493%, Lift= -0.30%
+  Resurrected                   : N= 5,283, Control=56.893%, Treatment=56.266%, Lift= -1.10%
+
+[7.2] Ordering Type (user_ordering_type)
+--------------------------------------------------------------------------------
+  Loyalist (60%+ from one merchant): N=440,224, Control=49.895%, Treatment=49.788%, Lift= -0.21%
+  Few Favorites (2-3 merchants) : N= 9,075, Control=41.855%, Treatment=42.001%, Lift= +0.35%
+  Balanced                      : N= 9,320, Control=45.819%, Treatment=46.327%, Lift= +1.11%
+  Explorer (10+ merchants)      : N= 6,387, Control=57.008%, Treatment=56.066%, Lift= -1.65%
+  Category-Focused (single vertical): N=   200, Control=39.815%, Treatment=39.130%, Lift= -1.72%
+
+[7.3] Frequency Bucket (frequency_bucket)
+--------------------------------------------------------------------------------
+  Very Low Frequency (<1 order/month): N=460,053, Control=49.602%, Treatment=49.495%, Lift= -0.22%
+  Low Frequency (1+ order/month): N= 4,097, Control=59.725%, Treatment=58.176%, Lift= -2.59%
+  Medium Frequency (1-2 orders/week): N=   656, Control=73.817%, Treatment=79.941%, Lift= +8.30%
+  High Frequency (2+ orders/week): N=   400, Control=81.865%, Treatment=85.507%, Lift= +4.45%
+
+[7.4] Engagement Level (pre_exposure_engagement_level)
+--------------------------------------------------------------------------------
+  Low Engagement                : N=409,821, Control=51.038%, Treatment=50.969%, Lift= -0.14%
+  Medium Engagement             : N=18,741, Control=32.785%, Treatment=33.333%, Lift= +1.67%
+  High Engagement               : N=36,644, Control=43.988%, Treatment=43.259%, Lift= -1.66%
+
+[7.5] Merchant Diversity (merchant_diversity)
+--------------------------------------------------------------------------------
+  Low Diversity (2-4 merchants) : N=438,003, Control=49.963%, Treatment=49.921%, Lift= -0.08%
+  Medium Diversity (5-9 merchants): N= 6,777, Control=46.442%, Treatment=47.375%, Lift= +2.01%
+  Single Merchant               : N=14,006, Control=41.523%, Treatment=39.074%, Lift= -5.90%
+  High Diversity (10+ merchants): N= 6,420, Control=57.000%, Treatment=56.147%, Lift= -1.50%
+
+[7.6] Recent Activity (30d) (had_recent_activity_30d)
+--------------------------------------------------------------------------------
+  0                             : N=325,663, Control=47.145%, Treatment=47.112%, Lift= -0.07%
+  1                             : N=139,543, Control=55.864%, Treatment=55.537%, Lift= -0.59%
+
+[7.7] Has Pre-Orders (has_pre_orders)
+--------------------------------------------------------------------------------
+  0                             : N=423,783, Control=50.206%, Treatment=50.164%, Lift= -0.08%
+  1                             : N=41,423, Control=45.113%, Treatment=44.345%, Lift= -1.70%
+
+✓ Saved subgroup analysis
+
+🏆 TOP 10 SEGMENTS (Highest Positive Lift):
+         segment_name                      segment_value      n  control_rate  treatment_rate  relative_lift_pct
+     Frequency Bucket Medium Frequency (1-2 orders/week)    656      0.738170        0.799410           8.296145
+     Frequency Bucket    High Frequency (2+ orders/week)    400      0.818653        0.855072           4.448725
+   Merchant Diversity   Medium Diversity (5-9 merchants)   6777      0.464423        0.473746           2.007550
+     Engagement Level                  Medium Engagement  18741      0.327851        0.333333           1.672131
+        Ordering Type                           Balanced   9320      0.458190        0.463273           1.109321
+        Ordering Type      Few Favorites (2-3 merchants)   9075      0.418548        0.420013           0.350052
+            Lifestage                       Very Churned 232082      0.444205        0.445277           0.241415
+Recent Activity (30d)                                  0 325663      0.471447        0.471122          -0.068844
+       Has Pre-Orders                                  0 423783      0.502060        0.501642          -0.083276
+   Merchant Diversity      Low Diversity (2-4 merchants) 438003      0.499628        0.499210          -0.083595
+
+⚠️  BOTTOM 10 SEGMENTS (Negative or Lowest Lift):
+      segment_name                      segment_value     n  control_rate  treatment_rate  relative_lift_pct
+Merchant Diversity                    Single Merchant 14006      0.415227        0.390736          -5.898146
+         Lifestage                             New Cx  1092      0.591760        0.573477          -3.089696
+  Frequency Bucket     Low Frequency (1+ order/month)  4097      0.597250        0.581756          -2.594072
+         Lifestage                      Non-Purchaser 52461      0.287093        0.281181          -2.059350
+     Ordering Type Category-Focused (single vertical)   200      0.398148        0.391304          -1.718908
+    Has Pre-Orders                                  1 41423      0.451131        0.443452          -1.702161
+  Engagement Level                    High Engagement 36644      0.439876        0.432591          -1.656175
+     Ordering Type           Explorer (10+ merchants)  6387      0.570085        0.560663          -1.652693
+Merchant Diversity     High Diversity (10+ merchants)  6420      0.570003        0.561469          -1.497200
+         Lifestage                            Dormant 50946      0.581772        0.574673          -1.220125
+
+[7] Compliance Analysis: What Drives Reonboarding?
+================================================================================
+Treatment group size: 232,518
+Compliers (did reonboarding): 85,911
+Compliance rate: 36.95%
+
+[7.1] Predicting Compliance (Logistic Regression)
+--------------------------------------------------------------------------------
+
+Top 20 Predictors of Compliance:
+                           feature  coefficient
+           tenure_days_at_exposure    -0.000065
+         frequency_total_spend_ytd    -0.000061
+     days_before_exposure_purchase    -0.000049
+     days_before_exposure_checkout    -0.000045
+   days_before_exposure_order_cart    -0.000041
+   days_before_exposure_store_page    -0.000038
+days_before_exposure_store_content    -0.000036
+            days_since_first_order    -0.000030
+             days_since_last_order     0.000030
+     days_since_last_funnel_action    -0.000024
+                   ytd_period_days    -0.000018
+           avg_days_between_orders    -0.000007
+          merchant_total_spend_ytd    -0.000006
+            max_gap_between_orders    -0.000003
+                  ytd_period_weeks    -0.000003
+           top_merchant_pct_orders    -0.000001
+  max_merchant_order_concentration    -0.000001
+    avg_days_between_orders_actual    -0.000001
+          avg_merchant_order_share    -0.000001
+        median_days_between_orders    -0.000001
+
+✓ Saved compliance predictors
+
+[7.2] Compliers vs Non-Compliers: Key Differences
+--------------------------------------------------------------------------------
+Compliers: 85,911
+Non-compliers: 146,607
+
+Order rates:
+  Compliers:     51.464%
+  Non-compliers: 48.585%
+  Difference:    +2.879%
+
+Key Feature Differences (top 10):
+                           feature  compliers_mean  non_compliers_mean     difference
+            days_since_first_order  -406845.630490      -280963.102505 -125882.527984
+             days_since_last_order  -407513.026644      -281724.465060 -125788.561584
+           tenure_days_at_exposure     1351.798326         1405.398330     -53.600004
+   days_before_exposure_order_cart     1953.865279         1935.922118      17.943161
+     days_before_exposure_checkout     1967.346812         1949.970090      17.376722
+     days_before_exposure_purchase     1980.933175         1964.550315      16.382860
+   days_before_exposure_store_page     1931.161446         1915.555615      15.605831
+days_before_exposure_store_content     1904.146000         1891.602775      12.543225
+          merchant_total_spend_ytd       18.321898           22.211880      -3.889982
+       store_content_visitor_count        1.699084            2.066027      -0.366943
+
+[8] Creating Visualizations...
+--------------------------------------------------------------------------------
+✓ Saved: 04_uplift_analysis.png
+✓ Saved: 04_top_segments_lift.png
+Traceback (most recent call last):
+  File "/Users/fiona.fan/Documents/fiona_analyses/user-analysis/cx_ios_reonboarding/python/04_causal_analysis.py", line 495, in <module>
+    top_20_features = feature_importance.head(20)
+NameError: name 'feature_importance' is not defined. Did you mean: 'treatment_importance'?

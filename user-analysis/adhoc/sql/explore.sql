@@ -1,13 +1,13 @@
 select top 10 * from METRICS_REPO.PUBLIC.final_rollout_ios_exposures;
 select top 10 * from metrics_repo.public.core_quality_events;
 
-select count(1) from (select * from  metrics_repo.public.core_quality_events where event_ts between '2023-07-31' and '2023-12-01') a
-inner join  METRICS_REPO.PUBLIC.final_rollout_ios_exposures b  
-on a.consumer_id = b.bucket_key
+select count(1) from 
+METRICS_REPO.PUBLIC.final_rollout_ios_exposures b  
+-- inner join  (select * from  metrics_repo.public.core_quality_events where event_ts between '2023-07-31' and '2023-12-01') a
+-- on a.consumer_id = b.bucket_key
 inner join metrics_repo.public.growth_notif_cx_dimensions_scd_consumer_id c 
-ON TO_CHAR(b.bucket_key) = TO_CHAR(c.consumer_id)
+ON to_varchar(b.bucket_key) = to_varchar(c.consumer_id)
       AND c.start_timestamp < DATEADD(SECOND, 180, b.first_exposure_time)
-;
 ;
 -- and a.event_ts between b.first_exposure_time and b.first_exposure_time + interval '10 seconds';
 

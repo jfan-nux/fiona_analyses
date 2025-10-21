@@ -1,0 +1,41 @@
+
+📊 OVERALL TREATMENT EFFECT (TEST SET):
+   • Control: 0.5709
+   • Treatment: 0.5685
+   • ATE: -0.0025 (-0.43%)
+
+📈 T-LEARNER (TEST SET - OUT-OF-SAMPLE):
+   • CATE range: [-0.3588, 0.2694]
+   • CATE mean: 0.0005 (std: 0.0322)
+   • Qini AUC: 0.005075
+   • Uplift AUC: 0.007345
+
+📈 X-LEARNER (TEST SET - OUT-OF-SAMPLE):
+   • CATE range: [-0.2869, 0.2247]
+   • CATE mean: 0.0007 (std: 0.0160)
+   • Qini AUC: -0.000610
+   • Uplift AUC: -0.000898
+
+📊 TRAINING SET METRICS (IN-SAMPLE - for comparison):
+   • T-Learner Qini AUC: 0.059503
+   • X-Learner Qini AUC: 0.059185
+   • Overfit check: Test vs Train Qini difference
+     - T-Learner: 0.054429
+     - X-Learner: 0.059796
+
+💾 SNOWFLAKE TABLES CREATED:
+   • proddb.fionafan.cx_ios_reonboarding_tlearner_scores_user_level
+     Columns: user_id, tag, result, is_treatment, tlearner_cate, tlearner_quartile
+   
+   • proddb.fionafan.cx_ios_reonboarding_xlearner_scores_user_level
+     Columns: user_id, tag, result, is_treatment, xlearner_cate, xlearner_quartile
+
+📁 OUTPUTS:
+   • 04_model_comparison.csv
+   • 04_tlearner_feature_importance.csv
+   • 04_xlearner_residual_feature_importance.csv
+
+📊 QINI CURVE PLOTS:
+   • 04_tlearner_qini_curve.png
+   • 04_xlearner_qini_curve.png
+   • 04_combined_qini_curve_comparison.png
