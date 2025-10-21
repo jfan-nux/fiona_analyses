@@ -28,3 +28,9 @@ and notification_message_type_overall != 'TRANSACTIONAL'
 and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
 and is_valid_send = 1 -- mostly valid for fpn sends
 group by all;
+
+
+
+
+proddb.ml.fact_cx_cross_vertical_propensity_scores_v1
+;

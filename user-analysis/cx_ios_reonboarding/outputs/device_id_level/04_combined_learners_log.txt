@@ -1,0 +1,194 @@
+:: loading settings :: url = jar:file:/Users/fiona.fan/Documents/fiona_analyses/venv/lib/python3.10/site-packages/pyspark/jars/ivy-2.5.1.jar!/org/apache/ivy/core/settings/ivysettings.xml
+Ivy Default Cache set to: /Users/fiona.fan/.ivy2/cache
+The jars for the packages stored in: /Users/fiona.fan/.ivy2/jars
+net.snowflake#spark-snowflake_2.12 added as a dependency
+:: resolving dependencies :: org.apache.spark#spark-submit-parent-ba98a1d4-a1ff-41dd-a44a-dcb02a51a9b7;1.0
+	confs: [default]
+	found net.snowflake#spark-snowflake_2.12;2.11.0-spark_3.3 in central
+	found net.snowflake#snowflake-ingest-sdk;0.10.8 in central
+	found net.snowflake#snowflake-jdbc;3.13.22 in central
+:: resolution report :: resolve 75ms :: artifacts dl 2ms
+	:: modules in use:
+	net.snowflake#snowflake-ingest-sdk;0.10.8 from central in [default]
+	net.snowflake#snowflake-jdbc;3.13.22 from central in [default]
+	net.snowflake#spark-snowflake_2.12;2.11.0-spark_3.3 from central in [default]
+	---------------------------------------------------------------------
+	|                  |            modules            ||   artifacts   |
+	|       conf       | number| search|dwnlded|evicted|| number|dwnlded|
+	---------------------------------------------------------------------
+	|      default     |   3   |   0   |   0   |   0   ||   3   |   0   |
+	---------------------------------------------------------------------
+:: retrieving :: org.apache.spark#spark-submit-parent-ba98a1d4-a1ff-41dd-a44a-dcb02a51a9b7
+	confs: [default]
+	0 artifacts copied, 3 already retrieved (0kB/2ms)
+25/10/20 18:36:42 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+================================================================================
+COMBINED X-LEARNER & T-LEARNER ANALYSIS
+With Qini Scores & Snowflake Persistence
+================================================================================
+
+[1] Loading cleaned data from Snowflake...
+2025-10-20 18:36:43,257 - utils.snowflake_connection - INFO - Optimized Spark session created successfully. Spark version: 3.3.4
+2025-10-20 18:36:46,014 - utils.snowflake_connection - INFO - Successfully connected to Snowflake
+2025-10-20 18:36:46,014 - utils.snowflake_connection - INFO - Executing query (pandas)
+✓ Loaded 1,550,688 rows
+2025-10-20 18:37:03,147 - utils.snowflake_connection - INFO - Snowflake connection closed
+✓ Using 30% sample: 465,206 rows
+  Features: 49 continuous, 25 categorical
+
+[2] Preparing Data for Modeling
+--------------------------------------------------------------------------------
+Total features: 117
+Control: (232989, 117), Treatment: (232217, 117)
+
+================================================================================
+T-LEARNER: SEPARATE MODELS FOR TREATMENT & CONTROL
+================================================================================
+
+[3.1] Training T-Learner Models...
+✓ Control model trained
+✓ Treatment model trained
+
+T-Learner CATE distribution:
+count    465206.000000
+mean          0.000081
+std           0.027634
+min          -0.721327
+25%          -0.009190
+50%          -0.001208
+75%           0.010118
+max           0.661141
+dtype: float64
+
+T-Learner Performance:
+  Qini AUC: 0.054869
+  Uplift AUC: 0.072844
+
+✓ Saved T-Learner feature importance
+
+================================================================================
+X-LEARNER: THREE-STAGE RESIDUAL MODELING
+================================================================================
+
+[4.1] Stage 1: Training Base Outcome Models...
+✓ μ0 (control) trained
+✓ μ1 (treatment) trained
+
+[4.2] Stage 2: Computing Pseudo-Outcomes...
+✓ D1 (treatment residuals): mean=0.0001
+✓ D0 (control residuals): mean=0.0001
+
+[4.3] Stage 3: Training Residual Models...
+✓ τ1 trained on treatment residuals
+✓ τ0 trained on control residuals
+
+X-Learner CATE distribution:
+count    465206.000000
+mean          0.000074
+std           0.015337
+min          -0.446933
+25%          -0.003913
+50%          -0.000189
+75%           0.004912
+max           0.392447
+dtype: float64
+
+X-Learner Performance:
+  Qini AUC: 0.047454
+  Uplift AUC: 0.063023
+
+Top 20 Features Predicting Treatment Effect Heterogeneity:
+                           feature  tau0_importance  tau1_importance  avg_importance
+           tenure_days_at_exposure         0.114565         0.107568        0.111067
+            days_since_first_order         0.093082         0.095782        0.094432
+             days_since_last_order         0.081734         0.084236        0.082985
+   days_before_exposure_store_page         0.035936         0.038916        0.037426
+days_before_exposure_store_content         0.041541         0.033285        0.037413
+           avg_days_between_orders         0.031991         0.033776        0.032883
+                    num_event_days         0.034775         0.027986        0.031381
+     days_since_last_funnel_action         0.031113         0.030550        0.030832
+          merchant_total_spend_ytd         0.033248         0.024816        0.029032
+         stddev_gap_between_orders         0.029360         0.026820        0.028090
+            max_gap_between_orders         0.026006         0.027220        0.026613
+                  pct_weeks_active         0.023840         0.027622        0.025731
+         frequency_total_spend_ytd         0.021487         0.027015        0.024251
+   days_before_exposure_order_cart         0.020347         0.026913        0.023630
+     days_before_exposure_checkout         0.020968         0.025259        0.023114
+    avg_days_between_orders_actual         0.018631         0.024310        0.021471
+          store_page_visitor_count         0.019368         0.017667        0.018518
+        median_days_between_orders         0.016089         0.018611        0.017350
+       store_content_visitor_count         0.020983         0.012532        0.016758
+     days_before_exposure_purchase         0.018110         0.014515        0.016312
+
+✓ Saved X-Learner feature importance
+
+[5] Model Comparison
+================================================================================
+    Model  CATE_Mean  CATE_Std  CATE_Min  CATE_Max  Qini_AUC  Uplift_AUC
+T-Learner   0.000081  0.027634 -0.721327  0.661141  0.054869    0.072844
+X-Learner   0.000074  0.015337 -0.446933  0.392447  0.047454    0.063023
+
+✓ Saved model comparison
+
+[6] Persisting Scores to Snowflake
+================================================================================
+Preparing to upload 465,206 rows...
+
+[6.1] Uploading T-Learner scores...
+2025-10-20 18:42:55,717 - utils.snowflake_connection - INFO - Optimized Spark session created successfully. Spark version: 3.3.4
+2025-10-20 18:42:58,266 - utils.snowflake_connection - INFO - Successfully connected to Snowflake
+2025-10-20 18:42:58,422 - utils.snowflake_connection - ERROR - Error executing query: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+2025-10-20 18:42:58,422 - utils.snowflake_connection - ERROR - Error creating and populating table cx_ios_reonboarding_tlearner_scores: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+2025-10-20 18:42:58,514 - utils.snowflake_connection - INFO - Snowflake connection closed
+⚠ Error uploading T-Learner scores: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+
+[6.2] Uploading X-Learner scores...
+2025-10-20 18:42:59,074 - utils.snowflake_connection - INFO - Optimized Spark session created successfully. Spark version: 3.3.4
+2025-10-20 18:42:59,449 - utils.snowflake_connection - INFO - Successfully connected to Snowflake
+2025-10-20 18:42:59,600 - utils.snowflake_connection - ERROR - Error executing query: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+2025-10-20 18:42:59,600 - utils.snowflake_connection - ERROR - Error creating and populating table cx_ios_reonboarding_xlearner_scores: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+2025-10-20 18:42:59,705 - utils.snowflake_connection - INFO - Snowflake connection closed
+⚠ Error uploading X-Learner scores: 003001 (42501): SQL access control error:
+Insufficient privileges to operate on schema 'FIONAFAN'.
+
+================================================================================
+ANALYSIS COMPLETE
+================================================================================
+
+📊 OVERALL TREATMENT EFFECT:
+   • Control: 0.4968
+   • Treatment: 0.4973
+   • ATE: +0.0004 (+0.09%)
+
+📈 T-LEARNER:
+   • CATE range: [-0.7213, 0.6611]
+   • CATE mean: 0.0001 (std: 0.0276)
+   • Qini AUC: 0.054869
+   • Uplift AUC: 0.072844
+
+📈 X-LEARNER:
+   • CATE range: [-0.4469, 0.3924]
+   • CATE mean: 0.0001 (std: 0.0153)
+   • Qini AUC: 0.047454
+   • Uplift AUC: 0.063023
+
+💾 SNOWFLAKE TABLES CREATED:
+   • proddb.fionafan.cx_ios_reonboarding_tlearner_scores
+     Columns: dd_device_id, user_id, tag, result, is_treatment, tlearner_cate, tlearner_quartile
+   
+   • proddb.fionafan.cx_ios_reonboarding_xlearner_scores
+     Columns: dd_device_id, user_id, tag, result, is_treatment, xlearner_cate, xlearner_quartile
+
+📁 OUTPUTS:
+   • 04_model_comparison.csv
+   • 04_tlearner_feature_importance.csv
+   • 04_xlearner_residual_feature_importance.csv
+
+✅ All models complete and scores persisted to Snowflake!

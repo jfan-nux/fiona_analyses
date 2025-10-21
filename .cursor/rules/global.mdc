@@ -157,6 +157,13 @@ When user requests experiment analysis, clarify:
 2. Use group by all instead of group by 1,2,3,4 etc.
 3. Use this logic to filter device_id, but make sure to mark it as dd_device_id_filtered. When joining, make sure to join on filtered device_id. replace(lower(CASE WHEN device_id like 'dx_%' then device_id else 'dx_'||device_id end), '-') 
 
+## Visualization Rules
+
+### Qini Curve Plotting
+- **ALWAYS set `perfect=False`** when using `plot_qini_curve()` from scikit-uplift
+- This removes the "perfect" uplift line which can clutter the visualization
+- Example: `plot_qini_curve(y, uplift, treatment, ax=ax, perfect=False)`
+
 ## Project Settings
 ```ini
 [python]

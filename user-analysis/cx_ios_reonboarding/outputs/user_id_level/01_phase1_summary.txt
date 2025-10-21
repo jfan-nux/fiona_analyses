@@ -1,0 +1,34 @@
+
+📊 DATASET SUMMARY:
+  • Total rows (30% sample): 465,213
+  • Unique users: 465,201
+  • Date range: 2025-09-08 to 2025-10-15
+
+🎯 TARGET VARIABLES: 6
+  • Primary: has_order_post_exposure
+  • Compliance: did_reonboarding
+  • Opt-ins: push_system_optin, sms_marketing_optin
+  • Volume: total_orders_post_exposure, total_gov_post_exposure
+
+📈 FEATURES FOR MODELING: 78
+  • Continuous: 50
+    - Tenure & Timing: 9
+    - Order Volume: 2
+    - Order Frequency: 7
+    - Merchant Behavior: 14
+    - Funnel Metrics: 5
+  
+  • Categorical: 28
+    - User characteristics (lifestage, experience)
+    - Behavior patterns (ordering type, frequency bucket)
+    - Geography (region, submarket)
+
+🔬 TREATMENT ASSIGNMENT:
+  • Control: 233,114 (50.1%)
+  • Treatment: 232,099 (49.9%)
+  • Compliance (treatment): 36.86%
+
+📦 ORDER RATE:
+  • Control: 56.880%
+  • Treatment: 56.977%
+  • Lift: +0.17%

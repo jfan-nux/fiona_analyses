@@ -208,3 +208,7 @@ __marimo__/
 
 
 config/
+
+# Data files
+# Ignore all CSV files in all subdirectories
+*.csv

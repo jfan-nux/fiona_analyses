@@ -1,0 +1,6 @@
+has_order_post_exposure
+did_reonboarding
+push_system_optin
+sms_marketing_optin
+total_orders_post_exposure
+total_gov_post_exposure

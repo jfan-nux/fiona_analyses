@@ -1,0 +1,17 @@
+====================================================================================================
+DID_REONBOARDING LIFT BY LIFESTAGE (Excluding New Cx & Active)
+====================================================================================================
+
+    lifestage  control_users  control_reonboarded control_pct  treatment_users  treatment_reonboarded treatment_pct absolute_lift_pp
+Non-Purchaser          88008                    2        0.00            87781                  40109         45.69            45.69
+ Very Churned         336305                   14        0.00           334658                 119135         35.60            35.59
+      Dormant          84573                    2        0.00            84583                  29417         34.78            34.78
+  Resurrected           8807                    0        0.00             8848                   3020         34.13            34.13
+      Churned          75830                    4        0.01            75540                  25614         33.91            33.90
+
+====================================================================================================
+OVERALL SUMMARY (Excluding New Cx & Active)
+====================================================================================================
+Control: 593,523 users, 22 reonboarded (0.00%)
+Treatment: 591,410 users, 217,295 reonboarded (36.74%)
+Lift: +36.74pp
