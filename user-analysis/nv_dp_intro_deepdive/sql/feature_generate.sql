@@ -625,3 +625,69 @@ select
   avg(target_ordered_month4) as mean_target_ordered_month4
 from proddb.fionafan.nv_dp_features_targets;
 
+
+
+select dp_first_order, count(1) cnt 
+, avg(target_ordered_24h) target_ordered_24h
+, avg(target_first_order_new_cx) target_first_order_new_cx
+, avg(target_ordered_month1) target_ordered_month1
+, avg(target_ordered_month2) target_ordered_month2
+, avg(target_ordered_month3) target_ordered_month3
+, avg(target_ordered_month4) target_ordered_month4
+from proddb.fionafan.nv_dp_features_targets group by all order by all desc; 
+
+select
+  a.dp_first_order,
+  count(*) as n,
+  
+  -- Covariates: NV impressions
+  avg(a.had_nv_imp_1h) as avg_had_nv_imp_1h,
+  avg(a.had_nv_imp_4h) as avg_had_nv_imp_4h,
+  avg(a.had_nv_imp_12h) as avg_had_nv_imp_12h,
+  avg(a.had_nv_imp_24h) as avg_had_nv_imp_24h,
+  avg(a.had_nv_imp_7d) as avg_had_nv_imp_7d,
+  avg(a.had_nv_imp_30d) as avg_had_nv_imp_30d,
+  avg(a.had_nv_imp_first_session) as avg_had_nv_imp_first_session,
+  avg(a.had_nv_imp_second_session) as avg_had_nv_imp_second_session,
+  
+  -- Covariates: NV orders
+  avg(a.nv_first_order) as avg_nv_first_order,
+  avg(a.nv_second_order) as avg_nv_second_order,
+  
+  -- Covariates: NV notifications
+  avg(a.has_nv_notif_30d) as avg_has_nv_notif_30d,
+  avg(a.has_nv_notif_60d) as avg_has_nv_notif_60d,
+  
+  -- Covariates: Time to impressions
+  avg(a.minutes_to_first_non_nv_impression) as avg_minutes_to_first_non_nv_impression,
+  avg(a.minutes_to_first_nv_impression) as avg_minutes_to_first_nv_impression,
+  
+  -- Covariates: Non-NV impressions
+  avg(a.had_non_nv_imp_1h) as avg_had_non_nv_imp_1h,
+  avg(a.had_non_nv_imp_4h) as avg_had_non_nv_imp_4h,
+  avg(a.had_non_nv_imp_12h) as avg_had_non_nv_imp_12h,
+  avg(a.had_non_nv_imp_24h) as avg_had_non_nv_imp_24h,
+  avg(a.had_non_nv_imp_7d) as avg_had_non_nv_imp_7d,
+  avg(a.had_non_nv_imp_30d) as avg_had_non_nv_imp_30d,
+  avg(a.had_non_nv_imp_first_session) as avg_had_non_nv_imp_first_session,
+  avg(a.had_non_nv_imp_second_session) as avg_had_non_nv_imp_second_session,
+  
+  -- Covariates: DP notifications
+  avg(a.dp_has_notif_30d) as avg_dp_has_notif_30d,
+  avg(a.dp_has_notif_any_day) as avg_dp_has_notif_any_day,
+  
+  -- Target variables
+  avg(a.target_ordered_24h) as avg_target_ordered_24h,
+  avg(a.target_first_order_new_cx) as avg_target_first_order_new_cx,
+  avg(a.target_ordered_month1) as avg_target_ordered_month1,
+  avg(a.target_ordered_month2) as avg_target_ordered_month2,
+  avg(a.target_ordered_month3) as avg_target_ordered_month3,
+  avg(a.target_ordered_month4) as avg_target_ordered_month4
+  
+from proddb.fionafan.nv_dp_features_targets a
+inner join proddb.fionafan.psm_matched_data_dp_first_order b on a.device_id = b.device_id and a.consumer_id = b.consumer_id
+group by all;
+
+select  dp_first_order, avg(had_nv_imp_30d) as avg_had_nv_imp_30d,
+  avg(has_nv_notif_30d) as avg_has_nv_notif_30d,
+  avg(had_nv_imp_1h) as avg_had_nv_imp_1h from proddb.fionafan.psm_matched_data_dp_first_order group by all;

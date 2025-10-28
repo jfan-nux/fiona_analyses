@@ -117,4 +117,3 @@ LEFT JOIN engagement_program_filtered ep
   AND ep.PROGRAM_EXPERIMENT_VARIANT = map.tag
 
 ORDER BY cu.user_id, cu.campaign_id;
-

@@ -117,7 +117,7 @@ ax1.set_xlabel('Store ETA Percentile Decile (1=Fastest, 10=Slowest)', fontsize=1
 ax1.set_ylabel('Delivery Count Lift %', fontsize=12)
 ax1.set_title('Delivery Count Lift by Store Historical ETA Performance', fontsize=13)
 ax1.grid(True, alpha=0.3, axis='y')
-ax1.set_xticks(range(1, 11))
+ax1.set_xticks(range(1, 5))
 
 # Add legend
 from matplotlib.patches import Patch
@@ -151,7 +151,7 @@ ax2.set_xlabel('Store ETA Percentile Decile (1=Fastest, 10=Slowest)', fontsize=1
 ax2.set_ylabel('Consumer Count Lift %', fontsize=12)
 ax2.set_title('Consumer Count Lift by Store Historical ETA Performance', fontsize=13)
 ax2.grid(True, alpha=0.3, axis='y')
-ax2.set_xticks(range(1, 11))
+ax2.set_xticks(range(1, 5))
 
 # Add legend
 legend_elements2 = [

@@ -112,4 +112,7 @@ WHERE 1=1
   AND n.SENT_AT_DATE < '2025-08-13'
   AND c.first_order_date >= '2025-07-01'
   AND c.first_order_date < '2025-07-15'
-  AND dc.DEFAULT_COUNTRY = 'United States'
+  AND dc.DEFAULT_COUNTRY = 'United States';
+
+select count(1) from proddb.fionafan.all_user_sessions_with_events_features_gen
+where funnel_converted_bool is not null;
