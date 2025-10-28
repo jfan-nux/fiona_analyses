@@ -225,3 +225,434 @@ left join proddb.luwang.market_tier t
 where a.is_restaurant = 1
 group by all
 ;
+
+create or replace table proddb.fionafan.ffs_quoted_eta_percentiles as (
+WITH base AS (
+  SELECT
+    d.store_id,
+    ds.NAME AS store_name,
+    d.created_at,
+    d.actual_delivery_time,
+    -- Quoted (point) from dimension_deliveries
+    d.QUOTED_DELIVERY_TIME AS quoted_time_point,
+    -- Upper bound from ETA range; fallback to quoted point if range upper missing (still allow both metrics to differ when available)
+    er.QUOTED_DELIVERY_TIME_RANGE_MAX AS quoted_time_upper
+  FROM edw.finance.dimension_deliveries d
+  JOIN edw.merchant.dimension_store ds
+    ON ds.store_id = d.store_id
+  LEFT JOIN edw.logistics.dasher_delivery_eta_range er
+    ON er.delivery_id = d.delivery_id
+  WHERE
+    d.created_at >= DATEADD(day, -28, CURRENT_DATE)
+    AND d.created_at < CURRENT_DATE
+    AND d.is_filtered_core = TRUE               -- delivered, non-cancelled, non-test, non-Drive
+    AND d.country_id = 1                        -- US
+    AND d.fulfillment_type ILIKE 'dasher%'      -- Dasher fulfilled
+    AND COALESCE(d.is_consumer_pickup, FALSE) = FALSE
+    AND COALESCE(ds.IS_RESTAURANT, 0) = 1       -- Restaurants
+),
+per_delivery AS (
+  SELECT
+    store_id,
+    store_name,
+    created_at,
+    actual_delivery_time,
+    quoted_time_point,
+    quoted_time_upper,
+    -- Use upper bound (when present) for ranking by quoted ETA minutes; fall back to quoted point
+    DATEDIFF(
+      minute,
+      created_at,
+      COALESCE(quoted_time_upper, quoted_time_point)
+    ) AS quoted_eta_minutes_for_rank,
+    -- Within quoted (point) and late windows
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= quoted_time_point THEN 1 ELSE 0 END AS within_quoted_0,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 5, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_5,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 10, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_10,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 20, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_20,
+    -- Within upper (range max) and late windows
+    CASE WHEN quoted_time_upper IS NOT NULL
+         AND actual_delivery_time <= quoted_time_upper THEN 1 ELSE 0 END AS within_upper_0,
+    CASE WHEN quoted_time_upper IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 5, quoted_time_upper) THEN 1 ELSE 0 END AS within_upper_plus_5,
+    CASE WHEN quoted_time_upper IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 10, quoted_time_upper) THEN 1 ELSE 0 END AS within_upper_plus_10,
+    CASE WHEN quoted_time_upper IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 20, quoted_time_upper) THEN 1 ELSE 0 END AS within_upper_plus_20
+  FROM base
+  WHERE quoted_time_point IS NOT NULL
+),
+per_store AS (
+  SELECT
+    store_id,
+    ANY_VALUE(store_name) AS store_name,
+    COUNT(*) AS deliveries_cnt,
+    AVG(quoted_eta_minutes_for_rank) AS avg_quoted_eta_minutes,
+    -- Percentages (0–1)
+    AVG(within_quoted_0)        AS pct_within_quoted_0,
+    AVG(within_quoted_plus_5)   AS pct_within_quoted_plus_5,
+    AVG(within_quoted_plus_10)  AS pct_within_quoted_plus_10,
+    AVG(within_quoted_plus_20)  AS pct_within_quoted_plus_20,
+    AVG(within_upper_0)         AS pct_within_upper_0,
+    AVG(within_upper_plus_5)    AS pct_within_upper_plus_5,
+    AVG(within_upper_plus_10)   AS pct_within_upper_plus_10,
+    AVG(within_upper_plus_20)   AS pct_within_upper_plus_20
+  FROM per_delivery
+  GROUP BY store_id
+),
+ranked AS (
+  SELECT
+    p.*,
+    CASE
+      WHEN CUME_DIST() OVER (ORDER BY avg_quoted_eta_minutes DESC) <= 0.30 THEN 1
+      ELSE 0
+    END AS is_top_30pct
+  FROM per_store p
+)
+SELECT
+  store_id,
+  store_name,
+  is_top_30pct,                -- 0/1 flag
+  avg_quoted_eta_minutes,
+  deliveries_cnt,
+  -- Within quoted (point) and quoted +5/+10/+20
+  pct_within_quoted_0,
+  pct_within_quoted_plus_5,
+  pct_within_quoted_plus_10,
+  pct_within_quoted_plus_20,
+  -- Within upper (range max) and upper +5/+10/+20
+  pct_within_upper_0,
+  pct_within_upper_plus_5,
+  pct_within_upper_plus_10,
+  pct_within_upper_plus_20
+FROM ranked
+-- Optional: stabilize by requiring a minimum number of deliveries per store in the 28d window
+-- WHERE deliveries_cnt >= 20                             UYT
+ORDER BY avg_quoted_eta_minutes DESC
+);
+
+-- Percentage of stores meeting each threshold for top 30% stores
+-- Concatenated view showing all metrics (quoted_0, quoted_plus_5, etc.)
+with base_stats as (
+  select
+    count(1) as total_stores,
+    -- pct_within_quoted_0
+    sum(case when pct_within_quoted_0 >= 0.9 then 1 else 0 end) / count(1) * 100 as quoted_0_pct_stores_within_90,
+    sum(case when pct_within_quoted_0 >= 0.85 then 1 else 0 end) / count(1) * 100 as quoted_0_pct_stores_within_85,
+    sum(case when pct_within_quoted_0 >= 0.8 then 1 else 0 end) / count(1) * 100 as quoted_0_pct_stores_within_80,
+    -- pct_within_quoted_plus_5
+    sum(case when pct_within_quoted_plus_5 >= 0.9 then 1 else 0 end) / count(1) * 100 as quoted_plus_5_pct_stores_within_90,
+    sum(case when pct_within_quoted_plus_5 >= 0.85 then 1 else 0 end) / count(1) * 100 as quoted_plus_5_pct_stores_within_85,
+    sum(case when pct_within_quoted_plus_5 >= 0.8 then 1 else 0 end) / count(1) * 100 as quoted_plus_5_pct_stores_within_80,
+    -- pct_within_quoted_plus_10
+    sum(case when pct_within_quoted_plus_10 >= 0.9 then 1 else 0 end) / count(1) * 100 as quoted_plus_10_pct_stores_within_90,
+    sum(case when pct_within_quoted_plus_10 >= 0.85 then 1 else 0 end) / count(1) * 100 as quoted_plus_10_pct_stores_within_85,
+    sum(case when pct_within_quoted_plus_10 >= 0.8 then 1 else 0 end) / count(1) * 100 as quoted_plus_10_pct_stores_within_80,
+    -- pct_within_quoted_plus_20
+    sum(case when pct_within_quoted_plus_20 >= 0.9 then 1 else 0 end) / count(1) * 100 as quoted_plus_20_pct_stores_within_90,
+    sum(case when pct_within_quoted_plus_20 >= 0.85 then 1 else 0 end) / count(1) * 100 as quoted_plus_20_pct_stores_within_85,
+    sum(case when pct_within_quoted_plus_20 >= 0.8 then 1 else 0 end) / count(1) * 100 as quoted_plus_20_pct_stores_within_80,
+    -- pct_within_upper_0
+    sum(case when pct_within_upper_0 >= 0.9 then 1 else 0 end) / count(1) * 100 as upper_0_pct_stores_within_90,
+    sum(case when pct_within_upper_0 >= 0.85 then 1 else 0 end) / count(1) * 100 as upper_0_pct_stores_within_85,
+    sum(case when pct_within_upper_0 >= 0.8 then 1 else 0 end) / count(1) * 100 as upper_0_pct_stores_within_80,
+    -- pct_within_upper_plus_5
+    sum(case when pct_within_upper_plus_5 >= 0.9 then 1 else 0 end) / count(1) * 100 as upper_plus_5_pct_stores_within_90,
+    sum(case when pct_within_upper_plus_5 >= 0.85 then 1 else 0 end) / count(1) * 100 as upper_plus_5_pct_stores_within_85,
+    sum(case when pct_within_upper_plus_5 >= 0.8 then 1 else 0 end) / count(1) * 100 as upper_plus_5_pct_stores_within_80,
+    -- pct_within_upper_plus_10
+    sum(case when pct_within_upper_plus_10 >= 0.9 then 1 else 0 end) / count(1) * 100 as upper_plus_10_pct_stores_within_90,
+    sum(case when pct_within_upper_plus_10 >= 0.85 then 1 else 0 end) / count(1) * 100 as upper_plus_10_pct_stores_within_85,
+    sum(case when pct_within_upper_plus_10 >= 0.8 then 1 else 0 end) / count(1) * 100 as upper_plus_10_pct_stores_within_80,
+    -- pct_within_upper_plus_20
+    sum(case when pct_within_upper_plus_20 >= 0.9 then 1 else 0 end) / count(1) * 100 as upper_plus_20_pct_stores_within_90,
+    sum(case when pct_within_upper_plus_20 >= 0.85 then 1 else 0 end) / count(1) * 100 as upper_plus_20_pct_stores_within_85,
+    sum(case when pct_within_upper_plus_20 >= 0.8 then 1 else 0 end) / count(1) * 100 as upper_plus_20_pct_stores_within_80
+  from proddb.fionafan.ffs_quoted_eta_percentiles 
+  where is_top_30pct = 1 and deliveries_cnt >= 20       
+)
+select 
+  'pct_within_quoted_0' as metric_name,
+  total_stores,
+  quoted_0_pct_stores_within_90 as pct_stores_within_90,
+  quoted_0_pct_stores_within_85 as pct_stores_within_85,
+  quoted_0_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_quoted_plus_5' as metric_name,
+  total_stores,
+  quoted_plus_5_pct_stores_within_90 as pct_stores_within_90,
+  quoted_plus_5_pct_stores_within_85 as pct_stores_within_85,
+  quoted_plus_5_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_quoted_plus_10' as metric_name,
+  total_stores,
+  quoted_plus_10_pct_stores_within_90 as pct_stores_within_90,
+  quoted_plus_10_pct_stores_within_85 as pct_stores_within_85,
+  quoted_plus_10_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_quoted_plus_20' as metric_name,
+  total_stores,
+  quoted_plus_20_pct_stores_within_90 as pct_stores_within_90,
+  quoted_plus_20_pct_stores_within_85 as pct_stores_within_85,
+  quoted_plus_20_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_upper_0' as metric_name,
+  total_stores,
+  upper_0_pct_stores_within_90 as pct_stores_within_90,
+  upper_0_pct_stores_within_85 as pct_stores_within_85,
+  upper_0_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_upper_plus_5' as metric_name,
+  total_stores,
+  upper_plus_5_pct_stores_within_90 as pct_stores_within_90,
+  upper_plus_5_pct_stores_within_85 as pct_stores_within_85,
+  upper_plus_5_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_upper_plus_10' as metric_name,
+  total_stores,
+  upper_plus_10_pct_stores_within_90 as pct_stores_within_90,
+  upper_plus_10_pct_stores_within_85 as pct_stores_within_85,
+  upper_plus_10_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+union all
+select 
+  'pct_within_upper_plus_20' as metric_name,
+  total_stores,
+  upper_plus_20_pct_stores_within_90 as pct_stores_within_90,
+  upper_plus_20_pct_stores_within_85 as pct_stores_within_85,
+  upper_plus_20_pct_stores_within_80 as pct_stores_within_80
+from base_stats
+order by metric_name;
+
+create or replace table proddb.fionafan.ffs_quoted_eta_percentiles_per_store as (
+WITH base AS (
+  SELECT
+    d.store_id,
+    ds.NAME AS store_name,
+    d.created_at,
+    d.actual_delivery_time,
+    d.QUOTED_DELIVERY_TIME AS quoted_time_point,
+    d.delivery_id
+  FROM edw.finance.dimension_deliveries d
+  JOIN edw.merchant.dimension_store ds
+    ON ds.store_id = d.store_id
+  WHERE
+    d.created_at >= DATEADD(day, -28, CURRENT_DATE)
+    AND d.created_at < CURRENT_DATE
+    AND d.is_filtered_core = TRUE               -- delivered, non-cancelled, non-test, non-Drive
+    AND d.fulfillment_type ILIKE 'dasher%'      -- Dasher fulfilled
+    AND COALESCE(d.is_consumer_pickup, FALSE) = FALSE
+    AND COALESCE(ds.IS_RESTAURANT, 0) = 1       -- Restaurants
+),
+per_delivery AS (
+  SELECT
+    store_id,
+    store_name,
+    created_at,
+    actual_delivery_time,
+    quoted_time_point,
+    delivery_id,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= quoted_time_point THEN 1 ELSE 0 END AS within_quoted_0,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 5, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_5,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 10, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_10,
+    CASE WHEN quoted_time_point IS NOT NULL
+         AND actual_delivery_time <= DATEADD(minute, 20, quoted_time_point) THEN 1 ELSE 0 END AS within_quoted_plus_20
+  FROM base
+  WHERE quoted_time_point IS NOT NULL
+),
+per_store AS (
+  SELECT
+    store_id,
+    ANY_VALUE(store_name) AS store_name,
+    COUNT(distinct delivery_id) AS deliveries_cnt,
+    AVG(within_quoted_0)        AS pct_within_quoted_0,
+    AVG(within_quoted_plus_5)   AS pct_within_quoted_plus_5,
+    AVG(within_quoted_plus_10)  AS pct_within_quoted_plus_10,
+    AVG(within_quoted_plus_20)  AS pct_within_quoted_plus_20
+  FROM per_delivery
+  GROUP BY store_id
+)
+SELECT
+  store_id,
+  store_name,
+  deliveries_cnt,
+  -- Within quoted (point) and quoted +5/+10/+20
+  pct_within_quoted_0,
+  pct_within_quoted_plus_5,
+  pct_within_quoted_plus_10,
+  pct_within_quoted_plus_20
+FROM per_store
+-- Optional: stabilize by requiring a minimum number of deliveries per store in the 28d window
+WHERE deliveries_cnt >= 20
+);
+
+create or replace table proddb.fionafan.ffs_static_eta_events as (
+
+    WITH base AS (
+  SELECT
+    TIME_SLICE(IGUAZU_SENT_AT, 5, 'MINUTE') AS time_bin,
+    CONSUMER_ID,
+    STORE_ID,
+    STORE_BUSINESS_ID,
+    FINAL_DELIVERY_ETA_SECONDS AS quoted_eta_seconds,
+    IGUAZU_SENT_AT,
+    ROW_NUMBER() OVER (
+      PARTITION BY TIME_SLICE(IGUAZU_SENT_AT, 5, 'MINUTE'), CONSUMER_ID, STORE_ID
+      ORDER BY IGUAZU_SENT_AT DESC
+    ) AS rn_latest_in_bin
+  FROM IGUAZU.SERVER_EVENTS_PRODUCTION.STATIC_ETA_EVENT_ICE
+  WHERE
+    IGUAZU_SENT_AT >= DATEADD(day, -2, CURRENT_TIMESTAMP())
+    AND IGUAZU_SENT_AT < CURRENT_TIMESTAMP()
+    AND CONSUMER_ID IS NOT NULL
+    AND STORE_ID IS NOT NULL
+    AND FINAL_DELIVERY_ETA_SECONDS IS NOT NULL
+),
+dedup AS (
+  SELECT
+    time_bin,
+    CONSUMER_ID,
+    STORE_ID,
+    STORE_BUSINESS_ID,
+    quoted_eta_seconds
+  FROM base
+  WHERE rn_latest_in_bin = 1
+),
+with_p30 AS (
+  SELECT
+    d.*,
+    PERCENTILE_CONT(0.3) WITHIN GROUP (ORDER BY quoted_eta_seconds)
+      OVER (PARTITION BY time_bin, CONSUMER_ID) AS p30_eta
+  FROM dedup d
+)
+SELECT
+  time_bin,
+  CONSUMER_ID,
+  STORE_ID,
+  STORE_BUSINESS_ID,
+  quoted_eta_seconds,
+  1 AS is_fastest_top30
+FROM with_p30
+WHERE quoted_eta_seconds <= p30_eta
+ORDER BY time_bin, CONSUMER_ID, quoted_eta_seconds ASC
+);
+
+
+create or replace table proddb.fionafan.ffs_static_eta_events_w_store as (
+select a.*,
+  deliveries_cnt,
+  -- Within quoted (point) and quoted +5/+10/+20
+  pct_within_quoted_0,
+  pct_within_quoted_plus_5,
+  pct_within_quoted_plus_10,
+  pct_within_quoted_plus_20,
+  -- Threshold checks for pct_within_quoted_0
+  (pct_within_quoted_0 >= 0.85 and deliveries_cnt > 20) as pct_within_quoted_0_exceed_85,
+  (pct_within_quoted_0 >= 0.90 and deliveries_cnt > 20) as pct_within_quoted_0_exceed_90,
+  (pct_within_quoted_0 >= 0.95 and deliveries_cnt > 20) as pct_within_quoted_0_exceed_95,
+  -- Threshold checks for pct_within_quoted_plus_5
+  (pct_within_quoted_plus_5 >= 0.85 and deliveries_cnt > 20) as pct_within_quoted_plus_5_exceed_85,
+  (pct_within_quoted_plus_5 >= 0.90 and deliveries_cnt > 20) as pct_within_quoted_plus_5_exceed_90,
+  (pct_within_quoted_plus_5 >= 0.95 and deliveries_cnt > 20) as pct_within_quoted_plus_5_exceed_95,
+  -- Threshold checks for pct_within_quoted_plus_10
+  (pct_within_quoted_plus_10 >= 0.85 and deliveries_cnt > 20) as pct_within_quoted_plus_10_exceed_85,
+  (pct_within_quoted_plus_10 >= 0.90 and deliveries_cnt > 20) as pct_within_quoted_plus_10_exceed_90,
+  (pct_within_quoted_plus_10 >= 0.95 and deliveries_cnt > 20) as pct_within_quoted_plus_10_exceed_95,
+  -- Threshold checks for pct_within_quoted_plus_20
+  (pct_within_quoted_plus_20 >= 0.85 and deliveries_cnt > 20) as pct_within_quoted_plus_20_exceed_85,
+  (pct_within_quoted_plus_20 >= 0.90 and deliveries_cnt > 20) as pct_within_quoted_plus_20_exceed_90,
+  (pct_within_quoted_plus_20 >= 0.95 and deliveries_cnt > 20) as pct_within_quoted_plus_20_exceed_95
+from proddb.fionafan.ffs_static_eta_events a
+left join proddb.fionafan.ffs_quoted_eta_percentiles b 
+on a.store_id::varchar = b.store_id::varchar
+);
+
+select * from proddb.fionafan.ffs_static_eta_events_w_store limit 10;
+
+-- Aggregate to time_bin - consumer_id level
+create or replace table proddb.fionafan.ffs_static_eta_events_consumer_agg as (
+select 
+  time_bin,
+  consumer_id,
+  count(*) as total_stores,
+  -- Percentage of stores exceeding thresholds for pct_within_quoted_0
+  avg(case when pct_within_quoted_0_exceed_85 then 1 else 0 end) as pct_stores_quoted_0_exceed_85,
+  avg(case when pct_within_quoted_0_exceed_90 then 1 else 0 end) as pct_stores_quoted_0_exceed_90,
+  avg(case when pct_within_quoted_0_exceed_95 then 1 else 0 end) as pct_stores_quoted_0_exceed_95,
+  -- Percentage of stores exceeding thresholds for pct_within_quoted_plus_5
+  avg(case when pct_within_quoted_plus_5_exceed_85 then 1 else 0 end) as pct_stores_quoted_plus_5_exceed_85,
+  avg(case when pct_within_quoted_plus_5_exceed_90 then 1 else 0 end) as pct_stores_quoted_plus_5_exceed_90,
+  avg(case when pct_within_quoted_plus_5_exceed_95 then 1 else 0 end) as pct_stores_quoted_plus_5_exceed_95,
+  -- Percentage of stores exceeding thresholds for pct_within_quoted_plus_10
+  avg(case when pct_within_quoted_plus_10_exceed_85 then 1 else 0 end) as pct_stores_quoted_plus_10_exceed_85,
+  avg(case when pct_within_quoted_plus_10_exceed_90 then 1 else 0 end) as pct_stores_quoted_plus_10_exceed_90,
+  avg(case when pct_within_quoted_plus_10_exceed_95 then 1 else 0 end) as pct_stores_quoted_plus_10_exceed_95,
+  -- Percentage of stores exceeding thresholds for pct_within_quoted_plus_20
+  avg(case when pct_within_quoted_plus_20_exceed_85 then 1 else 0 end) as pct_stores_quoted_plus_20_exceed_85,
+  avg(case when pct_within_quoted_plus_20_exceed_90 then 1 else 0 end) as pct_stores_quoted_plus_20_exceed_90,
+  avg(case when pct_within_quoted_plus_20_exceed_95 then 1 else 0 end) as pct_stores_quoted_plus_20_exceed_95
+from proddb.fionafan.ffs_static_eta_events_w_store
+group by all
+);
+
+grant all privileges on table proddb.fionafan.ffs_static_eta_events_consumer_agg to role public;
+
+select 
+--   time_bin,
+  -- pct_within_quoted_0 metrics
+  avg(pct_stores_quoted_0_exceed_85) as avg_pct_stores_quoted_0_exceed_85,
+  avg(case when pct_stores_quoted_0_exceed_85 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_0_exceed_85_gte_03,
+  avg(case when pct_stores_quoted_0_exceed_85 > 0 then 1 else 0 end) as pct_consumer_quoted_0_exceed_85_gt_0,
+  avg(pct_stores_quoted_0_exceed_90) as avg_pct_stores_quoted_0_exceed_90,
+  avg(case when pct_stores_quoted_0_exceed_90 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_0_exceed_90_gte_03,
+  avg(case when pct_stores_quoted_0_exceed_90 > 0 then 1 else 0 end) as pct_consumer_quoted_0_exceed_90_gt_0,
+--   avg(pct_stores_quoted_0_exceed_95) as avg_pct_stores_quoted_0_exceed_95,
+--   avg(case when pct_stores_quoted_0_exceed_95 < 0.5 then 1 else 0 end) as pct_consumer_quoted_0_exceed_95_lt_05,
+  -- pct_within_quoted_plus_5 metrics
+  avg(pct_stores_quoted_plus_5_exceed_85) as avg_pct_stores_quoted_plus_5_exceed_85,
+  avg(case when pct_stores_quoted_plus_5_exceed_85 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_5_exceed_85_gte_03,
+  avg(case when pct_stores_quoted_plus_5_exceed_85 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_5_exceed_85_gt_0,
+  avg(pct_stores_quoted_plus_5_exceed_90) as avg_pct_stores_quoted_plus_5_exceed_90,
+  avg(case when pct_stores_quoted_plus_5_exceed_90 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_5_exceed_90_gte_03,
+  avg(case when pct_stores_quoted_plus_5_exceed_90 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_5_exceed_90_gt_0,
+--   avg(pct_stores_quoted_plus_5_exceed_95) as avg_pct_stores_quoted_plus_5_exceed_95,
+--   avg(case when pct_stores_quoted_plus_5_exceed_95 < 0.5 then 1 else 0 end) as pct_consumer_quoted_plus_5_exceed_95_lt_05,
+  -- pct_within_quoted_plus_10 metrics
+  avg(pct_stores_quoted_plus_10_exceed_85) as avg_pct_stores_quoted_plus_10_exceed_85,
+  avg(case when pct_stores_quoted_plus_10_exceed_85 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_10_exceed_85_gte_03,
+  avg(case when pct_stores_quoted_plus_10_exceed_85 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_10_exceed_85_gt_0,
+  avg(pct_stores_quoted_plus_10_exceed_90) as avg_pct_stores_quoted_plus_10_exceed_90,
+  avg(case when pct_stores_quoted_plus_10_exceed_90 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_10_exceed_90_gte_03,
+  avg(case when pct_stores_quoted_plus_10_exceed_90 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_10_exceed_90_gt_0,
+--   avg(pct_stores_quoted_plus_10_exceed_95) as avg_pct_stores_quoted_plus_10_exceed_95,
+--   avg(case when pct_stores_quoted_plus_10_exceed_95 < 0.5 then 1 else 0 end) as pct_consumer_quoted_plus_10_exceed_95_lt_05,
+  -- pct_within_quoted_plus_20 metrics
+  avg(pct_stores_quoted_plus_20_exceed_85) as avg_pct_stores_quoted_plus_20_exceed_85,
+  avg(case when pct_stores_quoted_plus_20_exceed_85 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_20_exceed_85_gte_03,
+  avg(case when pct_stores_quoted_plus_20_exceed_85 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_20_exceed_85_gt_0,
+  avg(pct_stores_quoted_plus_20_exceed_90) as avg_pct_stores_quoted_plus_20_exceed_90,
+  avg(case when pct_stores_quoted_plus_20_exceed_90 >= 0.3 then 1 else 0 end) as pct_consumer_quoted_plus_20_exceed_90_gte_03,
+  avg(case when pct_stores_quoted_plus_20_exceed_90 > 0 then 1 else 0 end) as pct_consumer_quoted_plus_20_exceed_90_gt_0
+--   avg(pct_stores_quoted_plus_20_exceed_95) as avg_pct_stores_quoted_plus_20_exceed_95,
+--   avg(case when pct_stores_quoted_plus_20_exceed_95 < 0.5 then 1 else 0 end) as pct_consumer_quoted_plus_20_exceed_95_lt_05
+from proddb.fionafan.ffs_static_eta_events_consumer_agg
+group by all;

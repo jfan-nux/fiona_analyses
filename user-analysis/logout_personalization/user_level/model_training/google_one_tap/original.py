@@ -312,7 +312,7 @@ clear_table_query = f"Drop table if exists {target_table_name}"
 spark._jvm.net.snowflake.spark.snowflake.Utils.runQuery(OPTIONS, clear_table_query)
 print(f"Table {target_table_name} cleared")
 
-for decile in range(1, 11):
+for decile in range(1, 5):
     print(f"🚀 Processing decile {decile}/10")
 
     q = q_template.format(decile)

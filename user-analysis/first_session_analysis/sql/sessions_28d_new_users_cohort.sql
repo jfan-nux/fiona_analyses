@@ -133,9 +133,13 @@ latest_sessions AS (
   SELECT
     consumer_id,
     MAX(CASE WHEN rn_week_1 = 1 THEN dd_session_id END) as latest_session_day_0_7,
+    MAX(CASE WHEN rn_week_1 = 1 THEN session_timestamp END) as latest_session_day_0_7_ts,
     MAX(CASE WHEN rn_week_2 = 1 THEN dd_session_id END) as latest_session_day_8_14,
+    MAX(CASE WHEN rn_week_2 = 1 THEN session_timestamp END) as latest_session_day_8_14_ts,
     MAX(CASE WHEN rn_week_3 = 1 THEN dd_session_id END) as latest_session_day_15_21,
-    MAX(CASE WHEN rn_week_4 = 1 THEN dd_session_id END) as latest_session_day_22_28
+    MAX(CASE WHEN rn_week_3 = 1 THEN session_timestamp END) as latest_session_day_15_21_ts,
+    MAX(CASE WHEN rn_week_4 = 1 THEN dd_session_id END) as latest_session_day_22_28,
+    MAX(CASE WHEN rn_week_4 = 1 THEN session_timestamp END) as latest_session_day_22_28_ts
   FROM (
     SELECT
       consumer_id,
@@ -172,8 +176,11 @@ consumer_sessions AS (
     
     -- Sample session IDs (first, second, third overall)
     MAX(CASE WHEN nth_session_consumer = 1 THEN dd_session_id END) as first_session_id,
+    MAX(CASE WHEN nth_session_consumer = 1 THEN session_timestamp END) as first_session_ts,
     MAX(CASE WHEN nth_session_consumer = 2 THEN dd_session_id END) as second_session_id,
+    MAX(CASE WHEN nth_session_consumer = 2 THEN session_timestamp END) as second_session_ts,
     MAX(CASE WHEN nth_session_consumer = 3 THEN dd_session_id END) as third_session_id,
+    MAX(CASE WHEN nth_session_consumer = 3 THEN session_timestamp END) as third_session_ts,
     
     -- Session counts by week buckets
     COUNT(DISTINCT CASE WHEN days_since_onboarding BETWEEN 0 AND 7 THEN dd_session_id END) as sessions_day_0_7,
@@ -194,12 +201,19 @@ SELECT
   s.total_sessions,
   s.total_devices,
   s.first_session_id,
+  s.first_session_ts,
   s.second_session_id,
+  s.second_session_ts,
   s.third_session_id,
+  s.third_session_ts,
   l.latest_session_day_0_7,
+  l.latest_session_day_0_7_ts,
   l.latest_session_day_8_14,
+  l.latest_session_day_8_14_ts,
   l.latest_session_day_15_21,
+  l.latest_session_day_15_21_ts,
   l.latest_session_day_22_28,
+  l.latest_session_day_22_28_ts,
   s.sessions_day_0_7,
   s.sessions_day_8_14,
   s.sessions_day_15_21,
@@ -225,3 +239,291 @@ SELECT
   AVG(sessions_day_22_28) as avg_sessions_week_4
 FROM proddb.fionafan.new_user_sessions_enriched;
 
+
+-- Join session data to events_all table
+-- Unpivot session IDs and timestamps, then join to events
+CREATE OR REPLACE TABLE proddb.fionafan.new_user_sessions_with_events AS
+
+WITH unpivoted_sessions AS (
+  -- Stack all session types using UNION ALL
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    first_session_id as session_id,
+    first_session_ts as session_ts,
+    'first_session' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE first_session_id IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    second_session_id as session_id,
+    second_session_ts as session_ts,
+    'second_session' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE second_session_id IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    third_session_id as session_id,
+    third_session_ts as session_ts,
+    'third_session' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE third_session_id IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    latest_session_day_0_7 as session_id,
+    latest_session_day_0_7_ts as session_ts,
+    'latest_week_1' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE latest_session_day_0_7 IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    latest_session_day_8_14 as session_id,
+    latest_session_day_8_14_ts as session_ts,
+    'latest_week_2' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE latest_session_day_8_14 IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    latest_session_day_15_21 as session_id,
+    latest_session_day_15_21_ts as session_ts,
+    'latest_week_3' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE latest_session_day_15_21 IS NOT NULL
+  
+  UNION ALL
+  
+  SELECT 
+    consumer_id,
+    onboarding_day,
+    exposure_time,
+    dd_platform,
+    lifestage,
+    latest_session_day_22_28 as session_id,
+    latest_session_day_22_28_ts as session_ts,
+    'latest_week_4' as session_type
+  FROM proddb.fionafan.new_user_sessions_enriched
+  WHERE latest_session_day_22_28 IS NOT NULL
+),
+
+session_event_dates AS (
+  SELECT
+    *,
+    -- Convert UTC session timestamp to PST date for matching
+    DATE(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', session_ts)) as session_date_pst
+  FROM unpivoted_sessions
+)
+
+SELECT 
+  e.*,
+  s.session_type,
+  s.session_ts as session_ts_utc,
+  s.session_date_pst,
+  s.onboarding_day,
+  s.exposure_time,
+  s.lifestage
+FROM proddb.tyleranderson.events_all e
+INNER JOIN session_event_dates s
+  ON e.user_id::varchar = s.consumer_id::varchar
+  AND e.event_date = s.session_date_pst
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY e.user_id, e.event_date, e.session_num, e.timestamp, e.event_rank
+  ORDER BY 
+    CASE s.session_type
+      WHEN 'first_session' THEN 1
+      WHEN 'second_session' THEN 2
+      WHEN 'third_session' THEN 3
+      WHEN 'latest_week_1' THEN 4
+      WHEN 'latest_week_2' THEN 5
+      WHEN 'latest_week_3' THEN 6
+      WHEN 'latest_week_4' THEN 7
+    END
+) = 1
+ORDER BY e.user_id, e.timestamp, e.event_rank;
+
+select * from proddb.fionafan.new_user_sessions_with_events where user_id = '1962762248' order by timestamp;
+
+
+
+
+-- Daily drop-off analysis - NEW USERS
+-- Shows how many new user consumers had sessions on each day (0-28) since first order
+-- and calculates drop-off rates
+
+WITH total_cohort AS (
+  -- Get total number of consumers in the cohort (baseline)
+  SELECT COUNT(DISTINCT consumer_id) as total_consumers
+  FROM proddb.fionafan.new_user_sessions_28d
+),
+
+daily_active_consumers AS (
+  SELECT
+    days_since_onboarding,
+    COUNT(DISTINCT consumer_id) as active_consumers,
+    COUNT(DISTINCT dd_session_id) as total_sessions
+  FROM proddb.fionafan.new_user_sessions_28d
+  WHERE days_since_onboarding BETWEEN 0 AND 28
+  GROUP BY days_since_onboarding
+),
+
+-- Add baseline day -1 (total cohort)
+all_days AS (
+  SELECT 
+    -1 as days_since_onboarding,
+    c.total_consumers as active_consumers,
+    0 as total_sessions
+  FROM total_cohort c
+  
+  UNION ALL
+  
+  SELECT 
+    days_since_onboarding,
+    active_consumers,
+    total_sessions
+  FROM daily_active_consumers
+)
+
+SELECT
+  d.days_since_onboarding,
+  d.active_consumers,
+  d.total_sessions,
+  CASE WHEN d.total_sessions > 0 
+    THEN ROUND(d.total_sessions::FLOAT / NULLIF(d.active_consumers, 0), 2)
+    ELSE NULL 
+  END as avg_sessions_per_consumer,
+  
+  -- Drop-off from previous day
+  LAG(d.active_consumers) OVER (ORDER BY d.days_since_onboarding) as prev_day_consumers,
+  d.active_consumers - LAG(d.active_consumers) OVER (ORDER BY d.days_since_onboarding) as dropoff_from_prev_day,
+  ROUND(
+    100.0 * (d.active_consumers - LAG(d.active_consumers) OVER (ORDER BY d.days_since_onboarding))::FLOAT 
+    / NULLIF(LAG(d.active_consumers) OVER (ORDER BY d.days_since_onboarding), 0),
+    2
+  ) as pct_change_from_prev_day,
+  
+  -- Retention from day -1 (baseline)
+  c.total_consumers as day_minus_1_baseline,
+  d.active_consumers - c.total_consumers as dropoff_from_baseline,
+  ROUND(100.0 * d.active_consumers::FLOAT / NULLIF(c.total_consumers, 0), 2) as retention_rate_from_baseline,
+  ROUND(100.0 * (c.total_consumers - d.active_consumers)::FLOAT / NULLIF(c.total_consumers, 0), 2) as dropoff_rate_from_baseline
+
+FROM all_days d
+CROSS JOIN total_cohort c
+ORDER BY d.days_since_onboarding;
+
+
+-- Weekly drop-off analysis - NEW USERS
+-- Shows how many new user consumers had sessions in each week since first order
+-- and calculates drop-off rates week-over-week
+
+WITH total_cohort AS (
+  -- Get total number of consumers in the cohort (baseline)
+  SELECT COUNT(DISTINCT consumer_id) as total_consumers
+  FROM proddb.fionafan.new_user_sessions_28d
+),
+
+weekly_active_consumers AS (
+  SELECT
+    CASE 
+      WHEN days_since_onboarding BETWEEN 0 AND 7 THEN 'Week 1 (Days 0-7)'
+      WHEN days_since_onboarding BETWEEN 8 AND 14 THEN 'Week 2 (Days 8-14)'
+      WHEN days_since_onboarding BETWEEN 15 AND 21 THEN 'Week 3 (Days 15-21)'
+      WHEN days_since_onboarding BETWEEN 22 AND 28 THEN 'Week 4 (Days 22-28)'
+    END as week_label,
+    CASE 
+      WHEN days_since_onboarding BETWEEN 0 AND 7 THEN 1
+      WHEN days_since_onboarding BETWEEN 8 AND 14 THEN 2
+      WHEN days_since_onboarding BETWEEN 15 AND 21 THEN 3
+      WHEN days_since_onboarding BETWEEN 22 AND 28 THEN 4
+    END as week_number,
+    COUNT(DISTINCT consumer_id) as active_consumers,
+    COUNT(DISTINCT dd_session_id) as total_sessions
+  FROM proddb.fionafan.new_user_sessions_28d
+  WHERE days_since_onboarding BETWEEN 0 AND 28
+  GROUP BY 1, 2
+),
+
+-- Add baseline week 0 (total cohort)
+all_weeks AS (
+  SELECT 
+    0 as week_number,
+    'Week 0 (Baseline)' as week_label,
+    c.total_consumers as active_consumers,
+    0 as total_sessions
+  FROM total_cohort c
+  
+  UNION ALL
+  
+  SELECT 
+    week_number,
+    week_label,
+    active_consumers,
+    total_sessions
+  FROM weekly_active_consumers
+)
+
+SELECT
+  w.week_number,
+  w.week_label,
+  w.active_consumers,
+  w.total_sessions,
+  CASE WHEN w.total_sessions > 0 
+    THEN ROUND(w.total_sessions::FLOAT / NULLIF(w.active_consumers, 0), 2)
+    ELSE NULL 
+  END as avg_sessions_per_consumer,
+  
+  -- Drop-off from previous week
+  LAG(w.active_consumers) OVER (ORDER BY w.week_number) as prev_week_consumers,
+  w.active_consumers - LAG(w.active_consumers) OVER (ORDER BY w.week_number) as dropoff_from_prev_week,
+  ROUND(
+    100.0 * (w.active_consumers - LAG(w.active_consumers) OVER (ORDER BY w.week_number))::FLOAT 
+    / NULLIF(LAG(w.active_consumers) OVER (ORDER BY w.week_number), 0),
+    2
+  ) as pct_change_from_prev_week,
+  
+  -- Retention from week 0 (baseline)
+  c.total_consumers as week_0_baseline,
+  w.active_consumers - c.total_consumers as dropoff_from_baseline,
+  ROUND(100.0 * w.active_consumers::FLOAT / NULLIF(c.total_consumers, 0), 2) as retention_rate_from_baseline,
+  ROUND(100.0 * (c.total_consumers - w.active_consumers)::FLOAT / NULLIF(c.total_consumers, 0), 2) as dropoff_rate_from_baseline
+
+FROM all_weeks w
+CROSS JOIN total_cohort c
+ORDER BY w.week_number;

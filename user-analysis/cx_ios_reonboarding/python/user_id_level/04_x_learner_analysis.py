@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.metrics import roc_auc_score
 from scipy.stats import ttest_ind
 import sys
 import warnings
@@ -118,9 +119,9 @@ print(f"  All data: X_all={X_all.shape}")
 print("\n[STAGE 1] Training Base Outcome Models")
 print("=" * 80)
 
-# Stage 1a: Train control model (μ0)
-print("\nTraining μ0 (control outcome model)...")
-mu0_model = GradientBoostingRegressor(
+# Stage 1a: Train control model (μ0) - Binary Classification
+print("\nTraining μ0 (control outcome model) - binary classification...")
+mu0_model = GradientBoostingClassifier(
     n_estimators=100,
     max_depth=5,
     learning_rate=0.1,
@@ -130,9 +131,14 @@ mu0_model = GradientBoostingRegressor(
 mu0_model.fit(X0, y0)
 print(f"✓ Control model trained")
 
-# Stage 1b: Train treatment model (μ1)
-print("Training μ1 (treatment outcome model)...")
-mu1_model = GradientBoostingRegressor(
+# Calculate AUC for control model
+y0_pred_proba = mu0_model.predict_proba(X0)[:, 1]
+auc_mu0 = roc_auc_score(y0, y0_pred_proba)
+print(f"  → Control model AUC: {auc_mu0:.4f}")
+
+# Stage 1b: Train treatment model (μ1) - Binary Classification
+print("\nTraining μ1 (treatment outcome model) - binary classification...")
+mu1_model = GradientBoostingClassifier(
     n_estimators=100,
     max_depth=5,
     learning_rate=0.1,
@@ -141,6 +147,11 @@ mu1_model = GradientBoostingRegressor(
 )
 mu1_model.fit(X1, y1)
 print(f"✓ Treatment model trained")
+
+# Calculate AUC for treatment model
+y1_pred_proba = mu1_model.predict_proba(X1)[:, 1]
+auc_mu1 = roc_auc_score(y1, y1_pred_proba)
+print(f"  → Treatment model AUC: {auc_mu1:.4f}")
 
 # =======================
 # 4. STAGE 2: Compute Pseudo-Outcomes (Residuals)
@@ -151,14 +162,14 @@ print("=" * 80)
 # For treatment group: D1 = Y1 - μ0(X1)
 # (observed outcome minus predicted control outcome)
 print("\nComputing D1 for treatment group...")
-mu0_pred_on_treatment = mu0_model.predict(X1)
+mu0_pred_on_treatment = mu0_model.predict_proba(X1)[:, 1]
 D1 = y1 - mu0_pred_on_treatment
 print(f"✓ D1 computed: mean={D1.mean():.4f}, std={D1.std():.4f}")
 
 # For control group: D0 = μ1(X0) - Y0
 # (predicted treatment outcome minus observed outcome)
 print("Computing D0 for control group...")
-mu1_pred_on_control = mu1_model.predict(X0)
+mu1_pred_on_control = mu1_model.predict_proba(X0)[:, 1]
 D0 = mu1_pred_on_control - y0
 print(f"✓ D0 computed: mean={D0.mean():.4f}, std={D0.std():.4f}")
 

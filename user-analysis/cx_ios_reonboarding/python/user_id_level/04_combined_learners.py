@@ -8,7 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, GradientBoostingClassifier
+from sklearn.metrics import roc_auc_score
 from scipy.stats import ttest_ind
 import sys
 import warnings
@@ -36,8 +37,8 @@ pd.set_option('display.max_columns', None)
 sns.set_style('whitegrid')
 
 # Directories
-PLOTS_DIR = Path('plots/user_id_level')
-OUTPUT_DIR = Path('outputs/user_id_level')
+PLOTS_DIR = Path('/Users/fiona.fan/Documents/fiona_analyses/user-analysis/cx_ios_reonboarding/plots/user_id_level')
+OUTPUT_DIR = Path('/Users/fiona.fan/Documents/fiona_analyses/user-analysis/cx_ios_reonboarding/outputs/user_id_level')
 
 print("="*80)
 print("COMBINED X-LEARNER & T-LEARNER ANALYSIS")
@@ -58,8 +59,12 @@ with SnowflakeHook() as sf:
     df_full = sf.query_snowflake(query, method='pandas')
     print(f"✓ Loaded {len(df_full):,} rows")
 
+# Strip quotes from user_id if present
+if 'user_id' in df_full.columns:
+    df_full['user_id'] = df_full['user_id'].astype(str).str.replace('"', '').str.replace('\\', '')
+
 # Sample 30%
-df = df_full.sample(frac=0.3, random_state=42).copy()
+df = df_full.sample(frac=0.1, random_state=42).copy()
 print(f"✓ Using 30% sample: {len(df):,} rows")
 del df_full
 
@@ -75,10 +80,10 @@ print(f"  Train: {(df_train['is_treatment']==1).sum():,} treatment, {(df_train['
 print(f"  Test:  {(df_test['is_treatment']==1).sum():,} treatment, {(df_test['is_treatment']==0).sum():,} control")
 
 # Load feature lists
-with open(OUTPUT_DIR / '02_continuous_features.txt') as f:
+with open(OUTPUT_DIR / '01_continuous_features.txt') as f:
     continuous_features = [line.strip() for line in f if line.strip()]
 
-with open(OUTPUT_DIR / '02_categorical_features.txt') as f:
+with open(OUTPUT_DIR / '01_categorical_features.txt') as f:
     categorical_features = [line.strip() for line in f if line.strip()]
 
 # Convert to numeric for both train and test
@@ -158,18 +163,30 @@ print("T-LEARNER: SEPARATE MODELS FOR TREATMENT & CONTROL")
 print("="*80)
 
 print("\n[3.1] Training T-Learner Models...")
-mu0_t = GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42, verbose=0)
-mu1_t = GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42, verbose=0)
+print("Stage 1: Training outcome models (binary classification)")
+
+mu0_t = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42, verbose=0)
+mu1_t = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42, verbose=0)
 
 mu0_t.fit(X0_train, y0_train)
-print("✓ Control model trained")
+print("✓ Control model (μ0) trained")
+
+# Calculate AUC for control model
+y0_pred_proba = mu0_t.predict_proba(X0_train)[:, 1]
+auc_mu0 = roc_auc_score(y0_train, y0_pred_proba)
+print(f"  → Control model AUC: {auc_mu0:.4f}")
 
 mu1_t.fit(X1_train, y1_train)
-print("✓ Treatment model trained")
+print("✓ Treatment model (μ1) trained")
+
+# Calculate AUC for treatment model
+y1_pred_proba = mu1_t.predict_proba(X1_train)[:, 1]
+auc_mu1 = roc_auc_score(y1_train, y1_pred_proba)
+print(f"  → Treatment model AUC: {auc_mu1:.4f}")
 
 # Predict CATE on TEST set for evaluation
-pred_y0_t_test = mu0_t.predict(X_test)
-pred_y1_t_test = mu1_t.predict(X_test)
+pred_y0_t_test = mu0_t.predict_proba(X_test)[:, 1]
+pred_y1_t_test = mu1_t.predict_proba(X_test)[:, 1]
 cate_tlearner_test = pred_y1_t_test - pred_y0_t_test
 
 print(f"\nT-Learner CATE distribution (TEST set):")
@@ -188,8 +205,8 @@ else:
     print(f"\n⚠ Skipping Qini score (no positive outcomes in target variable)")
 
 # Also predict on TRAINING set for comparison (in-sample)
-pred_y0_t_train = mu0_t.predict(X_train_all)
-pred_y1_t_train = mu1_t.predict(X_train_all)
+pred_y0_t_train = mu0_t.predict_proba(X_train_all)[:, 1]
+pred_y1_t_train = mu1_t.predict_proba(X_train_all)[:, 1]
 cate_tlearner_train = pred_y1_t_train - pred_y0_t_train
 
 if SKLIFT_AVAILABLE and y_train_all.sum() > 0:
@@ -224,24 +241,34 @@ print("\n" + "="*80)
 print("X-LEARNER: THREE-STAGE RESIDUAL MODELING")
 print("="*80)
 
-print("\n[4.1] Stage 1: Training Base Outcome Models...")
-mu0_x = GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42, verbose=0)
-mu1_x = GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42, verbose=0)
+print("\n[4.1] Stage 1: Training Base Outcome Models (binary classification)...")
+mu0_x = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42, verbose=0)
+mu1_x = GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42, verbose=0)
 
 mu0_x.fit(X0_train, y0_train)
 print("✓ μ0 (control) trained")
 
+# Calculate AUC for control model
+y0_pred_proba_x = mu0_x.predict_proba(X0_train)[:, 1]
+auc_mu0_x = roc_auc_score(y0_train, y0_pred_proba_x)
+print(f"  → Control model AUC: {auc_mu0_x:.4f}")
+
 mu1_x.fit(X1_train, y1_train)
 print("✓ μ1 (treatment) trained")
 
-print("\n[4.2] Stage 2: Computing Pseudo-Outcomes...")
+# Calculate AUC for treatment model
+y1_pred_proba_x = mu1_x.predict_proba(X1_train)[:, 1]
+auc_mu1_x = roc_auc_score(y1_train, y1_pred_proba_x)
+print(f"  → Treatment model AUC: {auc_mu1_x:.4f}")
+
+print("\n[4.2] Stage 2: Computing Pseudo-Outcomes (treatment effect residuals)...")
 # D1 = Y1 - μ0(X1)
-mu0_pred_on_treatment = mu0_x.predict(X1_train)
+mu0_pred_on_treatment = mu0_x.predict_proba(X1_train)[:, 1]
 D1 = y1_train - mu0_pred_on_treatment
 print(f"✓ D1 (treatment residuals): mean={D1.mean():.4f}")
 
 # D0 = μ1(X0) - Y0
-mu1_pred_on_control = mu1_x.predict(X0_train)
+mu1_pred_on_control = mu1_x.predict_proba(X0_train)[:, 1]
 D0 = mu1_pred_on_control - y0_train
 print(f"✓ D0 (control residuals): mean={D0.mean():.4f}")
 
@@ -432,10 +459,14 @@ print("\n[7] Persisting Scores to Snowflake")
 print("=" * 80)
 
 # Combine train and test predictions
+# Add is_holdout flag (test set = holdout, train set = not holdout)
+df_train_encoded['is_holdout'] = False
+df_test_encoded['is_holdout'] = True
+
 df_combined = pd.concat([df_train_encoded, df_test_encoded], ignore_index=True)
 
 # Prepare combined scores table
-scores_df = df_combined[['user_id', 'tag', 'result', 'is_treatment']].copy()
+scores_df = df_combined[['user_id', 'tag', 'result', 'is_treatment', 'is_holdout']].copy()
 scores_df['tlearner_cate'] = df_combined['tlearner_cate']
 scores_df['xlearner_cate'] = df_combined['xlearner_cate']
 
@@ -448,7 +479,7 @@ print(f"Preparing to upload {len(scores_df):,} rows...")
 # Upload T-Learner scores
 print("\n[7.1] Uploading T-Learner scores...")
 tlearner_table = 'proddb.fionafan.cx_ios_reonboarding_tlearner_scores_user_level'
-tlearner_scores = scores_df[['user_id', 'tag', 'result', 'is_treatment', 
+tlearner_scores = scores_df[['user_id', 'tag', 'result', 'is_treatment', 'is_holdout',
                               'tlearner_cate', 'tlearner_quartile']].copy()
 tlearner_scores['tlearner_quartile'] = tlearner_scores['tlearner_quartile'].astype(str)
 
@@ -469,7 +500,7 @@ except Exception as e:
 # Upload X-Learner scores
 print("\n[7.2] Uploading X-Learner scores...")
 xlearner_table = 'proddb.fionafan.cx_ios_reonboarding_xlearner_scores_user_level'
-xlearner_scores = scores_df[['user_id', 'tag', 'result', 'is_treatment',
+xlearner_scores = scores_df[['user_id', 'tag', 'result', 'is_treatment', 'is_holdout',
                               'xlearner_cate', 'xlearner_quartile']].copy()
 xlearner_scores['xlearner_quartile'] = xlearner_scores['xlearner_quartile'].astype(str)
 
@@ -537,10 +568,14 @@ if qini_t_train is not None:
 summary += f"""
 💾 SNOWFLAKE TABLES CREATED:
    • proddb.fionafan.cx_ios_reonboarding_tlearner_scores_user_level
-     Columns: user_id, tag, result, is_treatment, tlearner_cate, tlearner_quartile
+     Columns: user_id, tag, result, is_treatment, is_holdout, tlearner_cate, tlearner_quartile
    
    • proddb.fionafan.cx_ios_reonboarding_xlearner_scores_user_level
-     Columns: user_id, tag, result, is_treatment, xlearner_cate, xlearner_quartile
+     Columns: user_id, tag, result, is_treatment, is_holdout, xlearner_cate, xlearner_quartile
+   
+   Holdout breakdown:
+     - Training set (is_holdout=FALSE): {(~scores_df['is_holdout']).sum():,} users
+     - Holdout set (is_holdout=TRUE): {scores_df['is_holdout'].sum():,} users
 
 📁 OUTPUTS:
    • 04_model_comparison.csv

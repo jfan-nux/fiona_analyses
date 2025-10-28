@@ -56,23 +56,15 @@ clean_campaign_ids AS (
 ),
 
 -- Get promo eligibility (users who were targeted in engagement programs)
-new_again_cx AS (
-    SELECT DISTINCT v.CONSUMER_ID
-    FROM EDW.CONSUMER.COMBINED_GROWTH_ACCOUNTING_PT_BASE v
-    INNER JOIN edw.growth.fact_consumer_app_open_events i 
-        ON i.CONSUMER_ID = v.CONSUMER_ID
-    WHERE v.CALENDAR_DATE >= '2025-09-01'
-        AND v.VISIT_STATUS_90D_DEFINITION = 'resurrected_today'
-),
-
 promo_eligible AS (
     SELECT DISTINCT
         ep.CONSUMER_ID,
         1 AS is_promo_eligible,
         COUNT(DISTINCT ep.PROGRAM_NAME) AS num_programs_eligible
-    FROM new_again_cx n
+    FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures exp
     INNER JOIN SEGMENT_EVENTS_RAW.CONSUMER_PRODUCTION.ENGAGEMENT_PROGRAM ep 
-        ON ep.CONSUMER_ID = n.CONSUMER_ID
+        ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = ep.CONSUMER_ID::varchar
+        AND exp.exposure_time>ep.timestamp
     WHERE ep.TIMESTAMP >= '2025-09-01'
         AND ep.PROGRAM_NAME IN (
             'ep_consumer_dormant_late_bloomers_us_v1', 
@@ -106,6 +98,30 @@ promo_eligible AS (
     GROUP BY ep.CONSUMER_ID
 ),
 
+-- Get users who actually saw the promo page
+saw_promo AS (
+    SELECT DISTINCT
+        consumer_id,
+        1 AS saw_promo_page,
+        COUNT(DISTINCT iguazu_id) AS promo_page_views
+    FROM iguazu.consumer.M_onboarding_end_promo_page_view_ice
+    WHERE CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)::date >= '2025-09-08'
+        AND lower(onboarding_type) = 'resurrected_user'
+        and  (position('%', promo_title) > 0 or position('$', promo_title)>0)
+    GROUP BY consumer_id
+),
+did_reonboarding AS (
+    SELECT DISTINCT
+        consumer_id,
+        1 AS did_reonboarding_flow,
+        COUNT(DISTINCT iguazu_id) AS reonboarding_clicks
+    FROM iguazu.consumer.M_onboarding_page_click_ice
+    WHERE convert_timezone('UTC','America/Los_Angeles', iguazu_timestamp)::date >= '2025-09-08'
+        AND lower(onboarding_type) = 'resurrected_user'
+        AND page = 'welcomeBack'
+        AND click_type = 'primary'
+    GROUP BY consumer_id
+),
 -- Get redemptions (using existing campaign user level table)
 redemptions AS (
     SELECT
@@ -128,9 +144,17 @@ SELECT
     exp.tag,
     exp.result,
     
-    -- Promo eligibility flag (1/0)
+    -- Promo eligibility flag (1/0) - targeted by engagement program
     COALESCE(pe.is_promo_eligible, 0) AS is_promo_eligible,
     COALESCE(pe.num_programs_eligible, 0) AS num_programs_eligible,
+    
+    -- Saw promo page flag (1/0) - actually viewed promo
+    COALESCE(sp.saw_promo_page, 0) AS saw_promo_page,
+    COALESCE(sp.promo_page_views, 0) AS promo_page_views,
+    
+    -- Did reonboarding flow flag (1/0) - clicked through welcome back
+    COALESCE(dr.did_reonboarding_flow, 0) AS did_reonboarding_flow,
+    COALESCE(dr.reonboarding_clicks, 0) AS reonboarding_clicks,
     
     -- Redemption flag (1/0)
     COALESCE(red.has_redeemed, 0) AS has_redeemed,
@@ -145,6 +169,14 @@ FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures exp
 LEFT JOIN promo_eligible pe
     ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = pe.consumer_id::varchar
 
+-- Left join to get users who saw promo page (strip quotes from consumer_id)
+LEFT JOIN saw_promo sp
+    ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = sp.consumer_id::varchar
+
+-- Left join to get users who did reonboarding flow (strip quotes from consumer_id)
+LEFT JOIN did_reonboarding dr
+    ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = dr.consumer_id::varchar
+
 -- Left join to get redemptions (strip quotes from consumer_id)
 LEFT JOIN redemptions red
     ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = red.consumer_id::varchar
@@ -153,12 +185,100 @@ LEFT JOIN redemptions red
 QUALIFY ROW_NUMBER() OVER (PARTITION BY REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '') ORDER BY exp.exposure_time) = 1
 );
 
+
+
+select *
+from  iguazu.consumer.M_onboarding_page_view_ice
+WHERE convert_timezone('UTC','America/Los_Angeles', iguazu_timestamp) >= '2025-09-08'
+and lower(onboarding_type) = 'resurrected_user'
+and page = 'welcomeBack'
+and dd_device_id ilike'%F4C064ED%';
+
+select * 
+FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
+
+    WHERE CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)::date >= '2025-09-08'
+        AND lower(onboarding_type) = 'resurrected_user'
+        -- and  (position('%', promo_title) > 0 or position('$', promo_title)>0)
+        and dd_device_id ilike'%F4C064ED%';
+
+
+
+grant select on proddb.fionafan.cx_ios_reonboarding_promo_user_level  to public;
+select * from proddb.fionafan.cx_ios_reonboarding_promo_user_level  where user_id = '323879498';
+
+
+
+-- select num_programs_eligible, count(1) cnt from proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' group by all;
+select count(1) as cnt, avg(is_promo_eligible) as avg_is_promo_eligible, avg(saw_promo_page) as avg_saw_promo_page, avg(has_redeemed) as avg_has_redeemed 
+from proddb.fionafan.cx_ios_reonboarding_promo_user_level a
+-- inner join METRICS_REPO.PUBLIC.enable_post_onboarding_in_consumer_targeting_exposures b
+-- on a.user_id = b.bucket_key and experiment_group <>'control'
+where tag = 'treatment' and exposure_time>='2025-09-25';
+
+select * from proddb.fionafan.cx_ios_reonboarding_promo_user_level 
+where tag = 'treatment' and exposure_time>='2025-09-25' 
+and is_promo_eligible = 1 and saw_promo_page = 0 and did_reonboarding_flow = 1
+limit 10;
+
+-- Pivot view: Did Reonboarding vs. Eligible for Promo
+SELECT
+    did_reonboarding_flow,
+    is_promo_eligible,
+    COUNT(*) AS user_count,
+    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) AS pct_of_total
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
+WHERE tag = 'treatment' AND exposure_time >= '2025-09-25'
+GROUP BY did_reonboarding_flow, is_promo_eligible
+ORDER BY did_reonboarding_flow DESC, is_promo_eligible DESC;
+select * from
+SEGMENT_EVENTS_RAW.CONSUMER_PRODUCTION.ENGAGEMENT_PROGRAM ep
+    WHERE ep.TIMESTAMP >= '2025-09-01'
+    and consumer_id = '323879498'
+        AND ep.PROGRAM_NAME IN (
+            'ep_consumer_dormant_late_bloomers_us_v1',
+            'ep_consumer_dormant_winback_us_v1',
+            'ep_consumer_dewo_phase2_us_v1',
+            'ep_consumer_dewo_phase3_us_v1',
+            'ep_consumer_dewo_phase1_retarget_us_v1',
+            'ep_consumer_ml_churn_prevention_us_v1_p1_active',
+            'ep_consumer_ml_churn_prevention_us_v1_p1_dormant',
+            'ep_consumer_ml_churn_prevention_us_v1_p2_active_active',
+            'ep_consumer_ml_churn_prevention_us_v1_p2_active_dormant',
+            'ep_consumer_ml_churn_prevention_us_v1_p2_dormant_active',
+            'ep_consumer_ml_churn_prevention_us_v1_p2_dormant_dormant',
+            'ep_consumer_dormant_churned_browsers_us_v1',
+            'ep_consumer_enhanced_rxauto_90d_us_v1',
+            'ep_consumer_enhanced_rxauto_120d_test_us_v1',
+            'ep_consumer_enhanced_rxauto_150day_test_us_v1',
+            'ep_consumer_enhanced_rxauto_180day_test_us_v1',
+            'ep_consumer_churned_btm_pickup_exclude_test_us_v1',
+            'ep_consumer_churned_latebloomers_auto_ctc_test_us',
+            'ep_consumer_rx_reachability_auto_us',
+            'ep_consumer_repeatchurned_us',
+            'ep_consumer_very_churned_med_vp_us_v1',
+            'ep_consumer_super_churned_low_vp_us_v1',
+            'ep_consumer_super_churned_med_vp_us_v1',
+            'ep_consumer_churned_low_vp_us_v1',
+            'ep_consumer_churned_med_vp_us_v1'
+        )
+        AND ep.PROGRAM_EXPERIMENT_VARIANT IS NOT NULL
+        AND LOWER(ep.PROGRAM_EXPERIMENT_VARIANT) NOT LIKE '%control%';
+
+
+    SELECT DISTINCT
+        promo_title
+    FROM iguazu.consumer.M_onboarding_end_promo_page_view_ice
+    WHERE CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)::date >= '2025-09-08'
+        AND lower(onboarding_type) = 'resurrected_user'
+        -- and  (position('%', promo_title) > 0 or position('$', promo_title)>0)
+        and lower(promo_title) not like '%welcome%';
 -- Summary stats
 SELECT 
     'Total Users' AS metric,
     COUNT(*) AS count,
     NULL AS pct
-FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' and exposure_time>='2025-09-25'
 
 UNION ALL
 
@@ -166,7 +286,23 @@ SELECT
     'Users Eligible for Promo (in engagement program)' AS metric,
     SUM(is_promo_eligible) AS count,
     AVG(is_promo_eligible) * 100.0 AS pct
-FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' and exposure_time>='2025-09-25'
+
+UNION ALL
+
+SELECT 
+    'Users Who Saw Promo Page' AS metric,
+    SUM(saw_promo_page) AS count,
+    AVG(saw_promo_page) * 100.0 AS pct
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' and exposure_time>='2025-09-25'
+
+UNION ALL
+
+SELECT 
+    'Users Who Did Reonboarding Flow' AS metric,
+    SUM(did_reonboarding_flow) AS count,
+    AVG(did_reonboarding_flow) * 100.0 AS pct
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' and exposure_time>='2025-09-25'
 
 UNION ALL
 
@@ -174,7 +310,7 @@ SELECT
     'Users Who Redeemed Promo' AS metric,
     SUM(has_redeemed) AS count,
     AVG(has_redeemed) * 100.0 AS pct
-FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level;
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level where tag = 'treatment' and exposure_time>='2025-09-25';
 
 -- Breakdown by treatment/control
 SELECT
@@ -182,9 +318,17 @@ SELECT
     COUNT(*) AS total_users,
     SUM(is_promo_eligible) AS users_promo_eligible,
     AVG(is_promo_eligible) * 100.0 AS pct_promo_eligible,
+    SUM(saw_promo_page) AS users_saw_promo,
+    AVG(saw_promo_page) * 100.0 AS pct_saw_promo,
+    SUM(did_reonboarding_flow) AS users_did_reonboarding,
+    AVG(did_reonboarding_flow) * 100.0 AS pct_did_reonboarding,
     SUM(has_redeemed) AS users_redeemed,
     AVG(has_redeemed) * 100.0 AS pct_redeemed
 FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
 GROUP BY result
 ORDER BY result;
 
+select * from proddb.fionafan.cx_ios_reonboarding_promo_user_level 
+where tag = 'treatment' and exposure_time>='2025-09-25' 
+and is_promo_eligible = 1 and saw_promo_page = 0
+limit 10;

@@ -1,27 +1,27 @@
 
 📊 OVERALL TREATMENT EFFECT (TEST SET):
-   • Control: 0.5709
-   • Treatment: 0.5685
-   • ATE: -0.0025 (-0.43%)
+   • Control: 0.5674
+   • Treatment: 0.5694
+   • ATE: +0.0020 (+0.35%)
 
 📈 T-LEARNER (TEST SET - OUT-OF-SAMPLE):
-   • CATE range: [-0.3588, 0.2694]
-   • CATE mean: 0.0005 (std: 0.0322)
-   • Qini AUC: 0.005075
-   • Uplift AUC: 0.007345
+   • CATE range: [-0.3990, 0.4692]
+   • CATE mean: 0.0007 (std: 0.0222)
+   • Qini AUC: -0.000531
+   • Uplift AUC: -0.000774
 
 📈 X-LEARNER (TEST SET - OUT-OF-SAMPLE):
-   • CATE range: [-0.2869, 0.2247]
-   • CATE mean: 0.0007 (std: 0.0160)
-   • Qini AUC: -0.000610
-   • Uplift AUC: -0.000898
+   • CATE range: [-0.1989, 0.2237]
+   • CATE mean: 0.0006 (std: 0.0096)
+   • Qini AUC: 0.000475
+   • Uplift AUC: 0.000686
 
 📊 TRAINING SET METRICS (IN-SAMPLE - for comparison):
-   • T-Learner Qini AUC: 0.059503
-   • X-Learner Qini AUC: 0.059185
+   • T-Learner Qini AUC: 0.037726
+   • X-Learner Qini AUC: 0.034748
    • Overfit check: Test vs Train Qini difference
-     - T-Learner: 0.054429
-     - X-Learner: 0.059796
+     - T-Learner: 0.038257
+     - X-Learner: 0.034273
 
 💾 SNOWFLAKE TABLES CREATED:
    • proddb.fionafan.cx_ios_reonboarding_tlearner_scores_user_level

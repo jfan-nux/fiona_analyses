@@ -510,3 +510,212 @@ ORDER BY
     END;
 
 
+
+-- Promo funnel rates by campaign (using existing campaign_user_level table)
+SELECT
+    campaign_name,
+    tag,
+    COUNT(DISTINCT user_id) AS total_users,
+    SUM(CASE WHEN redemptions_since_2025_09_01 > 0 THEN 1 ELSE 0 END) AS users_redeemed,
+    ROUND(AVG(CASE WHEN redemptions_since_2025_09_01 > 0 THEN 1 ELSE 0 END) * 100, 2) AS redeem_pct
+FROM proddb.fionafan.cx_ios_reonboarding_campaign_user_level
+GROUP BY campaign_name, tag
+ORDER BY campaign_name, tag;
+
+-- Promo redemption lift by campaign
+WITH base AS (
+    SELECT
+        campaign_name,
+        tag,
+        COUNT(DISTINCT user_id) AS total_users,
+        SUM(CASE WHEN redemptions_since_2025_09_01 > 0 THEN 1 ELSE 0 END) AS users_redeemed,
+        AVG(CASE WHEN redemptions_since_2025_09_01 > 0 THEN 1 ELSE 0 END) AS redeem_rate
+    FROM proddb.fionafan.cx_ios_reonboarding_campaign_user_level
+    GROUP BY campaign_name, tag
+),
+pivot_data AS (
+    SELECT
+        campaign_name,
+        MAX(CASE WHEN tag = 'control' THEN total_users END) AS control_total,
+        MAX(CASE WHEN tag = 'control' THEN redeem_rate END) AS control_rate,
+        MAX(CASE WHEN tag = 'treatment' THEN total_users END) AS treatment_total,
+        MAX(CASE WHEN tag = 'treatment' THEN redeem_rate END) AS treatment_rate
+    FROM base
+    GROUP BY campaign_name
+)
+SELECT
+    campaign_name,
+    control_total,
+    ROUND(control_rate * 100, 2) AS control_redeem_pct,
+    treatment_total,
+    ROUND(treatment_rate * 100, 2) AS treatment_redeem_pct,
+    ROUND((treatment_rate - control_rate) * 100, 2) AS redeem_lift_pp
+FROM pivot_data
+WHERE control_total > 0 AND treatment_total > 0
+ORDER BY treatment_total DESC;
+
+-- Overall promo funnel summary (eligible → saw → redeemed) with lift
+SELECT
+    result,
+    COUNT(*) AS total_users,
+    
+    -- Step 1: Eligible
+    SUM(is_promo_eligible) AS users_eligible,
+    ROUND(AVG(is_promo_eligible) * 100, 2) AS eligible_pct,
+    
+    -- Step 2: Saw promo (of eligible)
+    SUM(saw_promo_page) AS users_saw_promo,
+    ROUND(SUM(saw_promo_page) * 100.0 / NULLIF(SUM(is_promo_eligible), 0), 2) AS saw_pct_of_eligible,
+    
+    -- Step 3: Redeemed (of saw)
+    SUM(has_redeemed) AS users_redeemed,
+    ROUND(SUM(has_redeemed) * 100.0 / NULLIF(SUM(saw_promo_page), 0), 2) AS redeem_pct_of_saw
+    
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
+GROUP BY result
+ORDER BY result;
+
+
+
+-- Order rate lift by X-learner decile
+WITH decile_scores AS (
+    SELECT 
+        a.user_id,
+        a.is_holdout,
+        a.tag,
+        a.xlearner_cate,
+        NTILE(10) OVER (PARTITION BY a.is_holdout ORDER BY a.xlearner_cate) AS xlearner_decile
+    FROM proddb.fionafan.cx_ios_reonboarding_xlearner_scores_user_level a
+),
+base AS (
+    SELECT 
+        a.is_holdout,
+        a.xlearner_decile,
+        a.tag,
+        COUNT(DISTINCT a.user_id) AS user_count,
+        AVG(b.has_order_post_exposure) AS order_rate,
+        AVG(a.xlearner_cate) AS xlearner_cate
+    FROM decile_scores a
+    INNER JOIN proddb.fionafan.cx_ios_reonboarding_master_features_user_level b
+        ON b.user_id::varchar = REPLACE(REPLACE(a.user_id, '"', ''), '\\', '')::varchar
+    GROUP BY all
+),
+pivot_data AS (
+    SELECT
+        is_holdout,
+        xlearner_decile,
+        MAX(CASE WHEN tag = 'control' THEN user_count END) AS control_count,
+        MAX(CASE WHEN tag = 'control' THEN order_rate END) AS control_rate,
+        MAX(CASE WHEN tag = 'treatment' THEN user_count END) AS treatment_count,
+        MAX(CASE WHEN tag = 'treatment' THEN order_rate END) AS treatment_rate,
+        MAX(xlearner_cate) AS xlearner_cate
+    FROM base
+    GROUP BY all
+)
+SELECT
+    is_holdout,
+    xlearner_decile,
+    control_count,
+    ROUND(control_rate * 100, 2) AS control_pct,
+    treatment_count,
+    ROUND(treatment_rate * 100, 2) AS treatment_pct,
+    ROUND((treatment_rate - control_rate) * 100, 2) AS absolute_lift_pp,
+    xlearner_cate
+FROM pivot_data
+ORDER BY 1, 2;
+
+
+-- Order rate lift by T-learner decile
+WITH decile_scores AS (
+    SELECT 
+        a.user_id,
+        a.is_holdout,
+        a.tag,
+        a.tlearner_cate,
+        NTILE(10) OVER (PARTITION BY a.is_holdout ORDER BY a.tlearner_cate) AS tlearner_decile
+    FROM proddb.fionafan.cx_ios_reonboarding_tlearner_scores_user_level a
+),
+base AS (
+    SELECT 
+        a.is_holdout,
+        a.tlearner_decile,
+        a.tag,
+        COUNT(DISTINCT a.user_id) AS user_count,
+        AVG(b.has_order_post_exposure) AS order_rate,
+        AVG(a.tlearner_cate) AS tlearner_cate
+    FROM decile_scores a
+    INNER JOIN proddb.fionafan.cx_ios_reonboarding_master_features_user_level b
+        ON b.user_id::varchar = REPLACE(REPLACE(a.user_id, '"', ''), '\\', '')::varchar
+    GROUP BY all
+),
+pivot_data AS (
+    SELECT
+        is_holdout,
+        tlearner_decile,
+        MAX(CASE WHEN tag = 'control' THEN user_count END) AS control_count,
+        MAX(CASE WHEN tag = 'control' THEN order_rate END) AS control_rate,
+        MAX(CASE WHEN tag = 'treatment' THEN user_count END) AS treatment_count,
+        MAX(CASE WHEN tag = 'treatment' THEN order_rate END) AS treatment_rate,
+        MAX(tlearner_cate) AS tlearner_cate
+    FROM base
+    GROUP BY all
+)
+SELECT
+    is_holdout,
+    tlearner_decile,
+    control_count,
+    ROUND(control_rate * 100, 2) AS control_pct,
+    treatment_count,
+    ROUND(treatment_rate * 100, 2) AS treatment_pct,
+    ROUND((treatment_rate - control_rate) * 100, 2) AS absolute_lift_pp,
+    tlearner_cate
+FROM pivot_data
+ORDER BY 1, 2;
+
+
+-- Order rate lift by store content recency (tunable threshold)
+-- TUNE THIS: Change the threshold value below
+WITH threshold AS (
+    SELECT 120 AS days_threshold  -- <<< CHANGE THIS VALUE TO TUNE
+),
+base AS (
+    SELECT 
+        CASE 
+            WHEN days_before_exposure_store_content > t.days_threshold 
+                THEN 'More than ' || t.days_threshold || ' days'
+            ELSE t.days_threshold || ' days or less'
+        END AS store_content_recency,
+        tag,
+        COUNT(DISTINCT user_id) AS user_count,
+        AVG(has_order_post_exposure) AS order_rate
+    FROM proddb.fionafan.cx_ios_reonboarding_master_features_user_level
+    CROSS JOIN threshold t
+    where days_before_exposure_store_content >90
+    GROUP BY 
+        CASE 
+            WHEN days_before_exposure_store_content > t.days_threshold 
+                THEN 'More than ' || t.days_threshold || ' days'
+            ELSE t.days_threshold || ' days or less'
+        END,
+        tag
+),
+pivot_data AS (
+    SELECT
+        store_content_recency,
+        MAX(CASE WHEN tag = 'control' THEN user_count END) AS control_count,
+        MAX(CASE WHEN tag = 'control' THEN order_rate END) AS control_rate,
+        MAX(CASE WHEN tag = 'treatment' THEN user_count END) AS treatment_count,
+        MAX(CASE WHEN tag = 'treatment' THEN order_rate END) AS treatment_rate
+    FROM base
+    GROUP BY store_content_recency
+)
+SELECT
+    store_content_recency,
+    control_count,
+    ROUND(control_rate * 100, 2) AS control_pct,
+    treatment_count,
+    ROUND(treatment_rate * 100, 2) AS treatment_pct,
+    ROUND((treatment_rate - control_rate) * 100, 2) AS absolute_lift_pp
+FROM pivot_data
+ORDER BY store_content_recency DESC;
+
