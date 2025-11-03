@@ -24,12 +24,43 @@ SELECT
   DATEDIFF(day, exposure_time, SENT_AT_DATE) days_since_onboarding,
   -- COUNT(DISTINCT message_id) as unique_notifications,
   -- count(distinct consumer_id) as unique_consumers,
-  count(distinct message_id)/count(distinct consumer_id)  as message_per_consumer
+  count(distinct deduped_message_id)/count(distinct consumer_id)  as message_per_consumer
 FROM proddb.fionafan.all_user_notifications_base
 where notification_source = 'FPN Postal Service' 
 and notification_channel = 'PUSH'
+    and notification_message_type_overall = 'TRANSACTIONAL'
+    and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+    and is_valid_send = 1 
 group by all
 order by all;
+
+SELECT
+  cohort_type,
+  DATEDIFF(day, exposure_time, SENT_AT_DATE) days_since_onboarding,
+  -- COUNT(DISTINCT message_id) as unique_notifications,
+  -- count(distinct consumer_id) as unique_consumers,
+  count(distinct case when opened_at is not null then deduped_message_id end)/count(distinct consumer_id)  as opened_message_per_consumer,
+  count(distinct case when uninstalled_at is not null then deduped_message_id end)/count(distinct consumer_id)  as uninstalled_message_per_consumer,
+  count(distinct case when uninstalled_at is not null then consumer_id end)/count(distinct consumer_id)  as uninstalled_consumer_per_consumer,
+  count(distinct case when unsubscribed_at is not null then deduped_message_id end)/count(distinct consumer_id)  as unsubscribed_message_per_consumer,
+  count(distinct case when unsubscribed_at is not null then consumer_id end)/count(distinct consumer_id)  as unsubscribed_consumer_per_consumer
+FROM proddb.fionafan.all_user_notifications_base n
+where 1=1
+-- and notification_source = 'FPN Postal Service' 
+and  notification_source = 'Braze' 
+and notification_channel = 'PUSH'
+    and notification_message_type_overall != 'TRANSACTIONAL'
+    and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+    and is_valid_send = 1 
+group by all
+order by all;
+
+select body, count(1) cnt from  proddb.fionafan.all_user_notifications_base
+where notification_source = 'FPN Postal Service' 
+and notification_channel = 'PUSH'
+    and notification_message_type_overall !='TRANSACTIONAL'
+    and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+    and is_valid_send = 1 group by all order by cnt desc limit 100;
 
 select distinct notification_source from proddb.fionafan.all_user_notifications_base;
 
