@@ -336,3 +336,24 @@ select * from  proddb.fionafan.preference_toggle_ice_latest where consumer_id = 
 
 select tag, count(distinct dd_device_ID_filtered), count(distinct case when entity_ids is not null then dd_device_ID_filtered else null end) from proddb.fionafan.preference_experiment_m_card_view group by all;
 
+
+
+with start_funnel as (
+SELECT DISTINCT
+  DATE_TRUNC('day', CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)) AS day_pst,
+  count(distinct consumer_id) consumer_cnt,
+  count(distinct dd_device_id) device_cnt
+FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
+WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -14 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
+  AND ((lower(onboarding_type) = 'new_user') OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
+
+
+)
+ SELECT DATE_TRUNC('day', CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)) AS day_pst
+, count(distinct consumer_id) consumer_cnt
+, count(distinct dd_device_id) as device_cnt
+  FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
+  WHERE iguazu_timestamp >= current_date - 180 AND iguazu_timestamp < current_date + 1
+  AND lower(ONBOARDING_TYPE) = 'new_user' 
+  GROUP BY all
+  order by 1;

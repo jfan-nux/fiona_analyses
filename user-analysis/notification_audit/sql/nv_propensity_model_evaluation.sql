@@ -193,3 +193,5 @@ SELECT
 FROM decile_groups
 ORDER BY user_segment, score_group;
 
+select * from proddb.fionafan.all_user_notifications_base 
+where campaign_name = 'reserved_for_notification_v2_do_not_use' 

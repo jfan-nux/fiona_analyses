@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Session Conversion Prediction - Logistic Regression Models (PySpark)
-# MAGIC 
+# MAGIC
 # MAGIC Builds logistic regression models to predict session conversion using PySpark.
 # MAGIC Excludes data leakage features and generic features.
-# MAGIC 
+# MAGIC
 # MAGIC **Key Steps**:
 # MAGIC 1. Load session features from Snowflake
 # MAGIC 2. Exclude data leakage features (DoubleDash, payment actions, etc.)
@@ -21,7 +21,7 @@
 
 # Install compatible versions of packages for sentence-transformers
 # Using newer versions that work together
-# %pip install --upgrade torch transformers sentence-transformers scikit-learn huggingface-hub
+#%pip install --upgrade torch transformers sentence-transformers scikit-learn huggingface-hub
 
 # COMMAND ----------
 
@@ -232,6 +232,54 @@ df_pd = create_store_embeddings(df_pd)
 print("\nConverting back to Spark DataFrame...")
 df_spark_with_embeddings = spark.createDataFrame(df_pd)
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Save DataFrame with Embeddings to Snowflake
+
+# COMMAND ----------
+
+# Persist df_spark_with_embeddings to Snowflake
+embeddings_table = "session_features_with_store_embeddings"
+
+print(f"\n💾 Saving DataFrame with embeddings to Snowflake...")
+print(f"   Table: proddb.fionafan.{embeddings_table}")
+print(f"   Rows: {df_spark_with_embeddings.count():,}")
+
+# Handle NullType columns (Snowflake can't save them)
+# Either drop them or cast to StringType
+print(f"   🔍 Checking for NullType columns...")
+df_to_save = df_spark_with_embeddings
+null_type_cols = []
+
+for field in df_to_save.schema.fields:
+    if isinstance(field.dataType, T.NullType):
+        null_type_cols.append(field.name)
+
+if null_type_cols:
+    print(f"   ⚠️  Found {len(null_type_cols)} NullType columns: {null_type_cols}")
+    print(f"   🔄 Casting to StringType...")
+    
+    for col_name in null_type_cols:
+        df_to_save = df_to_save.withColumn(col_name, F.col(col_name).cast(T.StringType()))
+    
+    print(f"   ✅ Fixed NullType columns")
+
+df_to_save.write.format("snowflake") \
+    .options(**OPTIONS) \
+    .option("dbtable", f"proddb.fionafan.{embeddings_table}") \
+    .mode("overwrite") \
+    .save()
+
+print(f"   ✅ Successfully saved to proddb.fionafan.{embeddings_table}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Filter Out First Sessions for Modeling
+
+# COMMAND ----------
+
 # Now filter out first_session type (they won't have previous session similarity anyway)
 print("\nFiltering out first_session type (no previous session for comparison)...")
 df_spark = df_spark_with_embeddings.filter(F.col("session_type") != "first_session")
@@ -245,6 +293,10 @@ print(f"  ✅ Removed {session_count - session_count_filtered:,} first sessions"
 
 # Cache for reuse
 df_spark.cache()
+
+# COMMAND ----------
+
+df_spark.select('funnel_converted_bool')
 
 # COMMAND ----------
 
@@ -336,7 +388,6 @@ all_covariates = [
     'store_similarity_impression_prev',      # Similarity for stores user SAW
     'store_similarity_attribution_prev',     # Similarity for stores user CLICKED
     'store_similarity_funnel_store_prev',    # Similarity for stores user VISITED
-    'has_previous_session',                   # Flag for previous session existence
 ]
 
 print(f"\n📊 Feature Selection:")
@@ -346,9 +397,6 @@ print(f"  - ✅ Total features defined: {len(all_covariates)}")
 # Snowflake returns column names in uppercase, so we need to match case-insensitively
 df_columns_lower = [c.lower() for c in df_spark.columns]
 column_name_map = {c.lower(): c for c in df_spark.columns}  # Map lowercase to actual column name
-
-# Also define target column here for use throughout notebook
-target_col = column_name_map.get('funnel_converted_bool', 'FUNNEL_CONVERTED_BOOL')
 
 available_features = []
 missing_features = []
@@ -418,16 +466,17 @@ for i, feat in enumerate(funnel_features, 1):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Feature Correlation Analysis
+# MAGIC - ## Feature Correlation Analysis
 
 # COMMAND ----------
 
+df_spark.select('funnel_converted_bool').show()
+
+# COMMAND ----------
+
+
 # Calculate correlation matrix for features and target
 print("\n📊 Calculating feature correlations...")
-
-# Debug: Check what target_col is and what columns exist
-print(f"  🔍 Debug: target_col = '{target_col}'")
-print(f"  🔍 Debug: Sample df_spark columns: {df_spark.columns[:10]}")
 
 # Find target column case-insensitively directly from df_spark
 target_search_lower = 'funnel_converted_bool'
@@ -491,6 +540,11 @@ else:
 
 # COMMAND ----------
 
+corr_matrix.to_csv('correlation.csv')
+
+# COMMAND ----------
+
+
 if target_corr is not None:
     # Plot 1: Full Correlation Heatmap (top 30 features)
     print("\n📈 Generating correlation heatmap...")
@@ -530,78 +584,77 @@ if target_corr is not None:
     plt.tight_layout()
     display(fig)
 
-# COMMAND ----------
-
-if target_corr is not None:
-    # Plot 2: Feature-Target Correlation Bar Chart
-    print("\n📊 Feature-Target Correlations...")
-    
-    fig, ax = plt.subplots(figsize=(14, 12))
-    
-    # Get top 30 features by absolute correlation
-    top_30_corr = target_corr.drop(target_col).abs().sort_values(ascending=False).head(30)
-    top_30_features = top_30_corr.index.tolist()
-    top_30_values = target_corr[top_30_features].values
-    
-    # Create colors based on sign
-    colors = ['#d62728' if x < 0 else '#2ca02c' for x in top_30_values]
-    
-    # Horizontal bar plot
-    y_pos = np.arange(len(top_30_features))
-    ax.barh(y_pos, top_30_values, color=colors, alpha=0.7)
-    
-    # Customize
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(top_30_features, fontsize=9)
-    ax.invert_yaxis()
-    ax.set_xlabel(f'Correlation with Target ({target_col})', fontsize=11, fontweight='bold')
-    ax.set_title('Top 30 Features by Correlation with Conversion', fontsize=13, fontweight='bold')
-    ax.axvline(x=0, color='black', linestyle='-', linewidth=0.8)
-    ax.grid(axis='x', alpha=0.3)
-    
-    # Add value labels
-    for i, value in enumerate(top_30_values):
-        x_pos = value + (0.01 if value > 0 else -0.01)
-        ha = 'left' if value > 0 else 'right'
-        ax.text(x_pos, i, f'{value:+.3f}', va='center', ha=ha, fontsize=8)
-    
-    plt.tight_layout()
-    display(fig)
-    
-    print(f"\n✅ Correlation analysis complete")
-    print(f"  - Highest positive correlation: {target_corr.drop(target_col).max():.4f}")
-    print(f"  - Highest negative correlation: {target_corr.drop(target_col).min():.4f}")
 
 # COMMAND ----------
 
-if target_corr is not None:
-    # Plot 3: High Multicollinearity Detection
-    print("\n⚠️  Detecting high multicollinearity (|correlation| > 0.8)...")
+# Plot 2: Feature-Target Correlation Bar Chart
+print("\n📊 Feature-Target Correlations...")
+
+fig, ax = plt.subplots(figsize=(14, 12))
+
+# Get top 30 features by absolute correlation
+top_30_corr = target_corr.drop(target_col).abs().sort_values(ascending=False).head(30)
+top_30_features = top_30_corr.index.tolist()
+top_30_values = target_corr[top_30_features].values
+
+# Create colors based on sign
+colors = ['#d62728' if x < 0 else '#2ca02c' for x in top_30_values]
+
+# Horizontal bar plot
+y_pos = np.arange(len(top_30_features))
+ax.barh(y_pos, top_30_values, color=colors, alpha=0.7)
+
+# Customize
+ax.set_yticks(y_pos)
+ax.set_yticklabels(top_30_features, fontsize=9)
+ax.invert_yaxis()
+ax.set_xlabel('Correlation with Target (funnel_converted_bool)', fontsize=11, fontweight='bold')
+ax.set_title('Top 30 Features by Correlation with Conversion', fontsize=13, fontweight='bold')
+ax.axvline(x=0, color='black', linestyle='-', linewidth=0.8)
+ax.grid(axis='x', alpha=0.3)
+
+# Add value labels
+for i, value in enumerate(top_30_values):
+    x_pos = value + (0.01 if value > 0 else -0.01)
+    ha = 'left' if value > 0 else 'right'
+    ax.text(x_pos, i, f'{value:+.3f}', va='center', ha=ha, fontsize=8)
+
+plt.tight_layout()
+display(fig)
+
+print(f"\n✅ Correlation analysis complete")
+print(f"  - Highest positive correlation: {target_corr.drop(target_col).max():.4f}")
+print(f"  - Highest negative correlation: {target_corr.drop(target_col).min():.4f}")
+
+# COMMAND ----------
+
+# Plot 3: High Multicollinearity Detection
+print("\n⚠️  Detecting high multicollinearity (|correlation| > 0.8)...")
+
+# Find pairs with high correlation (excluding diagonal)
+high_corr_pairs = []
+for i in range(len(corr_subset.columns)):
+    for j in range(i+1, len(corr_subset.columns)):
+        corr_val = corr_subset.iloc[i, j]
+        if abs(corr_val) > 0.8:
+            high_corr_pairs.append({
+                'feature_1': corr_subset.columns[i],
+                'feature_2': corr_subset.columns[j],
+                'correlation': corr_val
+            })
+
+if high_corr_pairs:
+    high_corr_df = pd.DataFrame(high_corr_pairs).sort_values('correlation', ascending=False, key=abs)
+    print(f"\n  ⚠️  Found {len(high_corr_df)} feature pairs with |correlation| > 0.8:")
+    print(f"\n  {'Feature 1':<50} {'Feature 2':<50} {'Correlation':<12}")
+    print("  " + "-" * 112)
+    for _, row in high_corr_df.head(20).iterrows():
+        print(f"  {row['feature_1']:<50} {row['feature_2']:<50} {row['correlation']:>11.4f}")
     
-    # Find pairs with high correlation (excluding diagonal)
-    high_corr_pairs = []
-    for i in range(len(corr_subset.columns)):
-        for j in range(i+1, len(corr_subset.columns)):
-            corr_val = corr_subset.iloc[i, j]
-            if abs(corr_val) > 0.8:
-                high_corr_pairs.append({
-                    'feature_1': corr_subset.columns[i],
-                    'feature_2': corr_subset.columns[j],
-                    'correlation': corr_val
-                })
-    
-    if high_corr_pairs:
-        high_corr_df = pd.DataFrame(high_corr_pairs).sort_values('correlation', ascending=False, key=abs)
-        print(f"\n  ⚠️  Found {len(high_corr_df)} feature pairs with |correlation| > 0.8:")
-        print(f"\n  {'Feature 1':<50} {'Feature 2':<50} {'Correlation':<12}")
-        print("  " + "-" * 112)
-        for _, row in high_corr_df.head(20).iterrows():
-            print(f"  {row['feature_1']:<50} {row['feature_2']:<50} {row['correlation']:>11.4f}")
-        
-        if len(high_corr_df) > 20:
-            print(f"\n  ... and {len(high_corr_df) - 20} more pairs")
-    else:
-        print(f"\n  ✅ No severe multicollinearity detected (all |correlations| < 0.8)")
+    if len(high_corr_df) > 20:
+        print(f"\n  ... and {len(high_corr_df) - 20} more pairs")
+else:
+    print(f"\n  ✅ No severe multicollinearity detected (all |correlations| < 0.8)")
 
 # COMMAND ----------
 
@@ -811,8 +864,7 @@ def fit_logistic_model_spark(
 
 # COMMAND ----------
 
-# Use the actual column name from Snowflake (uppercase)
-target = target_col  # Already defined in correlation section
+target = "funnel_converted_bool"
 max_iter = 1000
 reg_param = 1.0
 elastic_net = 0.0
@@ -1008,19 +1060,17 @@ print("\n" + "="*80)
 print("ANALYSIS COMPLETE!")
 print("="*80)
 print(f"\n📊 Results Summary:")
-print(f"   - Total sessions analyzed (after filtering): {session_count_filtered:,}")
-print(f"   - Conversion rate: {conversion_rate_filtered:.2%}")
+print(f"   - Total sessions analyzed: {session_count:,}")
+print(f"   - Conversion rate: {conversion_rate:.2%}")
 print(f"   - Pre-Funnel Model AUC: {pre_metrics['test_auc']:.4f}")
 print(f"   - Funnel-Inclusive Model AUC: {full_metrics['test_auc']:.4f}")
 print(f"\n💾 Results saved to:")
 print(f"   - Table: proddb.fionafan.{output_table}")
 print(f"\n🎯 Next Steps:")
 print(f"   1. Review top features to understand conversion drivers")
-print(f"   2. Review correlation heatmap for multicollinearity")
+print(f"   2. Compare with previous model results")
 print(f"   3. Validate no data leakage in top features")
-print(f"   4. Check if store embedding similarities are predictive")
 
 # COMMAND ----------
-
 
 

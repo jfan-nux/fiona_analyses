@@ -10,4 +10,36 @@ SELECT DISTINCT
   'start_page' as onboarding_page
 FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
 WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -14 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
-  AND ((lower(onboarding_type) = 'new_user') 
+  AND ((lower(onboarding_type) = 'new_user') ;
+
+
+
+  SELECT 
+    s.user_id,
+    s.dd_device_id,
+    s.cohort_type,
+    CASE WHEN e.second_session_id IS NOT NULL THEN 1 ELSE 0 END as had_second_session
+FROM proddb.fionafan.all_user_sessions_with_events_features_gen s
+LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
+    ON s.user_id = e.consumer_id
+WHERE s.session_type = 'first_session'
+    AND s.cohort_type IS NOT NULL
+    AND s.user_id IS NOT NULL;
+
+select cohort_type, count(1) cnt, avg(CASE WHEN second_session_id IS NOT NULL THEN 1 ELSE 0 END) as avg_had_second_session from (
+  select s.*, e.second_session_id
+    FROM proddb.fionafan.all_user_sessions_with_events_features_gen s
+LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
+    ON s.user_id = e.consumer_id
+WHERE s.session_type = 'first_session' and session_num = 1
+    AND s.cohort_type IS NOT NULL
+    AND s.user_id IS NOT NULL) group by all;
+
+
+
+  select *
+    FROM proddb.fionafan.all_user_sessions_with_events_features_gen s
+LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
+    ON s.user_id = e.consumer_id
+WHERE s.session_type = 'first_session' and session_num = 1
+and user_id = '1261327083';

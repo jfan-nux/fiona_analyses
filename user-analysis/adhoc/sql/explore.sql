@@ -158,4 +158,104 @@ SELECT
 FROM all_variants_moments
 CROSS JOIN global_lift
 QUALIFY
-  ROW_NUMBER() OVER (PARTITION BY variant_name, experiment_group ORDER BY 1) = 1
+  ROW_NUMBER() OVER (PARTITION BY variant_name, experiment_group ORDER BY 1) = 1;
+
+
+
+  SELECT DISTINCT
+  cast(iguazu_timestamp as date) AS day,
+  consumer_id,
+  DD_DEVICE_ID,
+  replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE_ID else 'dx_'||DD_DEVICE_ID end), '-') as dd_device_id_filtered,
+  dd_platform,
+  lower(onboarding_type) as onboarding_type,
+  promo_title,
+  'start_page' as onboarding_page
+FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
+
+WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -14 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
+  AND ((lower(onboarding_type) = 'new_user') OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
+
+
+SET analysis_name='cx_ios_guest_conversion_fix__Users';
+SET var_name='control';
+
+SELECT 
+  a.dimension_value AS Lifestage,
+  a.exposures AS Exposures,
+  a.metric_impact_absolute AS Impact_Abs,
+  a.metric_value AS control_Rate,
+  (a.exposures*a.metric_value)::integer AS control_mau
+FROM dimension_experiment_analysis_results a 
+
+INNER JOIN 
+dimension_experiment_analyses b 
+ON a.analysis_name=b.analysis_name
+WHERE TRUE 
+AND metric_name='consumers_mau'
+AND dimension_name='cx_lifestage'
+AND dimension_value IS NOT NULL
+AND metric_impact_absolute IS NOT NULL
+AND b.health_check_result_detailed:imbalance::VARCHAR='PASSED'
+AND b.health_check_result_detailed:flicker::VARCHAR='PASSED'
+AND a.analysis_name=$analysis_name
+-- AND a.variant_name='control'
+ORDER BY dimension_value;
+
+select count(1)
+from  dimension_experiment_analysis_results a 
+INNER JOIN 
+dimension_experiment_analyses b 
+WHERE TRUE 
+AND metric_name='consumers_mau'
+AND dimension_name='cx_lifestage'
+AND dimension_value IS NOT NULL
+AND metric_impact_absolute IS NOT NULL
+AND a.analysis_name='cx_ios_guest_conversion_fix';
+-- AND a.variant_name=$var_name
+
+-- Lifestage split percentage by exposure date using growth accounting table
+SET exp_name = 'cx_ios_guest_conversion_fix';
+SET start_date = '2025-09-29';
+SET end_date = CURRENT_DATE;
+SET version = 1;
+SET segment = 'Users';
+
+WITH exposure AS (
+    SELECT 
+        ee.tag,
+        ee.result,
+        ee.custom_attributes:userId::VARCHAR AS consumer_id,
+        MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)::date) AS day,
+        MIN(convert_timezone('UTC','America/Los_Angeles',ee.EXPOSURE_TIME)) AS EXPOSURE_TIME,
+        
+    FROM proddb.public.fact_dedup_experiment_exposure ee
+    WHERE experiment_name = $exp_name
+        AND experiment_version::INT = $version
+        AND segment = $segment
+        AND convert_timezone('UTC','America/Los_Angeles',EXPOSURE_TIME) BETWEEN $start_date AND $end_date
+    GROUP BY all
+),
+
+exposures_with_lifestage AS (
+    SELECT 
+
+        exp.consumer_id,
+        exp.EXPOSURE_TIME,
+        exp.day AS exposure_date,
+        scd.LIFESTAGE
+    FROM exposure exp
+    LEFT JOIN EDW.GROWTH.CONSUMER_GROWTH_ACCOUNTING_SCD3 scd
+        ON exp.consumer_id = TO_CHAR(scd.CONSUMER_ID)
+        AND CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', scd.SCD_START_DATE)::DATE <= exp.day
+        AND CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', scd.SCD_END_DATE)::DATE >= exp.day
+)
+
+SELECT 
+    -- exposure_date,
+    LIFESTAGE,
+    COUNT(*) AS exposure_count,
+    COUNT(*) / SUM(COUNT(*)) OVER () AS pct_overall
+FROM exposures_with_lifestage
+GROUP BY LIFESTAGE
+ORDER BY LIFESTAGE;
