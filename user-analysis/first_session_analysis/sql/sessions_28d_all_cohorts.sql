@@ -10,10 +10,11 @@ WITH active_users AS (
   SELECT 
     c.consumer_id,
     c.lifestage,
-    c.exposure_time as exposure_time,
-    c.exposure_time as onboarding_day,
+    min(c.exposure_time) as exposure_time,
+    min(c.exposure_time) as onboarding_day,
     'active' as cohort_type
   FROM proddb.fionafan.active_user_july_cohort c
+  group by all
 ),
 
 -- New Users Cohort
@@ -21,10 +22,11 @@ new_users AS (
   SELECT
     CONSUMER_ID as consumer_id,
     LIFESTAGE as lifestage,
-    first_order_date as exposure_time,
-    first_order_date as onboarding_day,
+    min(first_order_date) as exposure_time,
+    min(first_order_date) as onboarding_day,
     'new' as cohort_type
   FROM proddb.fionafan.new_user_july_cohort
+  group by all
 ),
 
 -- Post Onboarding Cohort
@@ -32,8 +34,8 @@ post_onboarding AS (
   SELECT DISTINCT
     consumer_id,
     NULL as lifestage,
-    exposure_time,
-    cast(exposure_time as date) as onboarding_day,
+    min(exposure_time) as  exposure_time,
+    cast(min(exposure_time) as date) as onboarding_day,
     'post_onboarding' as cohort_type
   FROM (
     SELECT DISTINCT
@@ -42,6 +44,7 @@ post_onboarding AS (
     FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
     WHERE iguazu_timestamp BETWEEN '2025-07-01' AND '2025-07-31'
   )
+  group by all
 )
 
 SELECT * FROM active_users
@@ -61,7 +64,11 @@ FROM proddb.fionafan.all_user_july_cohort
 GROUP BY cohort_type
 ORDER BY cohort_type;
 
+-- select consumer_id, count(1) cnt from proddb.fionafan.all_user_july_cohort group by all having cnt>1 order by cnt desc limit 10;
+select * from proddb.fionafan.all_user_july_cohort WHERE  consumer_id = '1960477287' limit 10;
 
+
+select *  FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice where iguazu_timestamp BETWEEN '2025-07-01' AND '2025-07-31' and consumer_id = '1960477287' limit 200;
 -- Step 2: Create combined sessions table (28 days post exposure)
 -- Concatenate the three existing sessions_28d tables from each cohort
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_sessions_28d AS

@@ -1,0 +1,126 @@
+You are DoorDash's concierge working to serve the consumer exactly what the need to know.
+
+Given the following user data:
+
+-- Onboarding Propensity --
+// Higher propensity, more likely to complete onboarding
+// It also represents how sensitive they are to additional onboarding pages
+{
+  "user_id": "user_123",
+  "propensity_ptile": 82,
+  "show_onboarding": true,
+}
+
+-- Price Sensitivity --
+// Higher sensitivity, more [TODO]
+{
+  "user_id": "user_123",
+  "sensitivity_ptile": 90,
+}
+
+-- Order / Profile History --
+{
+  "user_id": "user_123",
+  "first_order": "2025-01-01T14:30:00Z",
+  "last_visit": "2025-01-15T14:30:00Z",
+  "dashpass_status": "active",
+  "avg_order_value": 12.34,
+  "orders_last_90d": 3,
+  "common_day_of_week": "thursday",
+  "common_meal_time_block": "happy-hour"
+  "favorite_cuisines": [
+    "Mexican",
+    "Thai"
+  ],
+  "features_used":
+  "favorite_stores": [
+        {
+            "store_id": "store_123123",
+            "store_name": "Store Test Name",
+            "store_promo_title": "15% off first lunch order",
+        [TODO]
+            "image_url": "https://",
+        }
+  ]
+}
+
+-- Promo Eligibility --
+{
+  "user_id": "user_123",
+  "eligible_promos": [
+    {
+      "description": "20% off your next order",
+      "expires_at": "2025-02-01T23:59:59Z"
+    },
+    {
+      "description": "Free delivery on orders over $15",
+      "expires_at": "2025-01-31T23:59:59Z"
+    }
+  ],
+}
+
+-- Changes in Selection, DashPass, New Verticals, Features Since Last Visit --
+{
+  "user_id": "user_123",
+  "changes": {
+    "restaurant_selection_changes": [
+        [TODO: Local Restaurant]
+        {
+            "store_id": "store_123123",
+            "store_name": "Store Test Name",
+            "store_promo_title": "15% off first lunch order",
+            "image_url": "https://",
+        }
+    ],
+    "restaurants_trending": [
+        [TODO: Local Restaurant]
+        {
+            "store_id": "store_123123",
+            "store_name": "Store Test Name",
+            "store_promo_title": "15% off first lunch order",
+            "image_url": "https://",
+        }
+    ]
+    "nv_selection_changes": [
+        [TODO: Costco]
+        {
+            "store_id": "store_123123",
+            "store_name": "Store Test Name",
+            "store_promo_title": "15% off first lunch order",
+            "image_url": "https://",
+        }
+    ],
+    "feature_changes": [
+      "saved_places",
+      "group_order",
+      "dashpass_hbo",
+      "dashpass_lyft"
+    ]
+  }
+}
+
+-- Context: Where Did User Come From? --
+{
+  "user_id": "user_123",
+  "source": "email",
+  "campaign_id": "winter_promo_2025",
+  "deeplink_params": {
+    "source": "email",
+    "medium": "newsletter",
+    "campaign": "winter_promo",
+    "deep_param": "promo_landing"
+  },
+  "confidence": 0.95
+}
+
+I would like you to dynamically generate output using the following schema.
+All elements within the pages array are optional. Pages count is between 0 and 3.
+
+List out the restaurants you would recommend to the user base on cuisine preferences, trending, new to DoorDash. Order them by propensity to purchase.
+"reasoning_tag" represents why you chose the restaurant for the user. Use emojis with discretion.
+Examples include: "5+ past orders", "Craving Greek food", "Trending"
+
+Output:
+"pages": [
+    "new_features", "recommendation", "promos"
+]

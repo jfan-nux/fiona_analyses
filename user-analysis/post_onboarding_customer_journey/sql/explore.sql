@@ -344,11 +344,10 @@ SELECT DISTINCT
   count(distinct consumer_id) consumer_cnt,
   count(distinct dd_device_id) device_cnt
 FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -14 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
-  AND ((lower(onboarding_type) = 'new_user') OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
-
-
-)
+WHERE (lower(onboarding_type) = 'new_user') and iguazu_timestamp >= current_date - 180 AND iguazu_timestamp < current_date + 1
+group by all
+),
+end_funnel as (
  SELECT DATE_TRUNC('day', CONVERT_TIMEZONE('UTC','America/Los_Angeles', iguazu_timestamp)) AS day_pst
 , count(distinct consumer_id) consumer_cnt
 , count(distinct dd_device_id) as device_cnt
@@ -356,4 +355,12 @@ WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -14 as
   WHERE iguazu_timestamp >= current_date - 180 AND iguazu_timestamp < current_date + 1
   AND lower(ONBOARDING_TYPE) = 'new_user' 
   GROUP BY all
-  order by 1;
+  order by 1
+  
+)
+select s.day_pst, s.consumer_cnt, s.device_cnt, e.consumer_cnt, e.device_cnt
+, e.consumer_cnt/s.consumer_cnt as pct_consumer_cnt, e.device_cnt/s.device_cnt as pct_device_cnt
+from start_funnel s
+left join end_funnel e
+on s.day_pst = e.day_pst
+;

@@ -259,3 +259,144 @@ SELECT
 FROM exposures_with_lifestage
 GROUP BY LIFESTAGE
 ORDER BY LIFESTAGE;
+
+
+WITH
+  params AS (
+    SELECT
+      DATEADD(day, -365, CURRENT_DATE) AS signup_start,
+      DATEADD(day, -28, CURRENT_DATE) AS signup_end_mature,
+      CURRENT_DATE AS today
+  ),
+  -- 1) Mature signup cohort (USER_ID, signup_ts)
+  cohort AS (
+    SELECT
+      du.USER_ID,
+      du.JOINED_TIMESTAMP AS signup_ts
+    FROM
+      edw.core.dimension_users du
+      JOIN params p ON 1 = 1
+    WHERE
+      du.JOINED_TIMESTAMP >= p.signup_start
+      AND du.JOINED_TIMESTAMP < p.signup_end_mature
+      AND COALESCE(du.HAS_DOORDASH_ACCOUNT, 1) = 1
+  ),
+  -- 2) Map to CONSUMER_ID (reduce to only cohort users)
+  cohort_consumers AS (
+    SELECT
+      c.USER_ID,
+      dc.CONSUMER_ID,
+      c.signup_ts
+    FROM
+      cohort c
+      JOIN edw.consumer.dimension_consumers dc ON dc.USER_ID = c.USER_ID
+    WHERE
+      dc.CONSUMER_ID IS NOT NULL
+  ),
+  -- 3) First session after signup (QUALIFY to avoid self-join), with global date bounds for pruning.
+  first_session AS (
+    SELECT
+      s.CONSUMER_ID,
+      s.SESSION_START_TIME AS first_session_start,
+      COALESCE(
+        s.SESSION_END_TIME,
+        DATEADD(hour, 1, s.SESSION_START_TIME)
+      ) AS first_session_end
+    FROM
+      edw.consumer.fact_consumer_sessions s
+      JOIN cohort_consumers cc ON cc.CONSUMER_ID = s.CONSUMER_ID
+        AND s.SESSION_START_TIME >= cc.signup_ts
+      JOIN params p ON 1 = 1
+    WHERE
+      s.SESSION_START_TIME >= p.signup_start
+      AND s.SESSION_START_TIME < p.today
+    QUALIFY
+      ROW_NUMBER() OVER (
+        PARTITION BY s.CONSUMER_ID
+        ORDER BY s.SESSION_START_TIME ASC
+      ) = 1
+  ),
+  -- 4) Orders placed during first session (or within 10 min after session end)
+  purchase_in_first_session AS (
+    SELECT DISTINCT
+      fs.CONSUMER_ID
+    FROM
+      first_session fs
+      JOIN edw.growth.fact_consumer_deliveries fcd
+        ON fcd.CONSUMER_ID = fs.CONSUMER_ID
+       AND fcd.ORDER_CREATED_TIME >= fs.first_session_start
+       AND fcd.ORDER_CREATED_TIME < DATEADD(minute, 10, fs.first_session_end)
+      JOIN params p ON 1 = 1
+    WHERE
+      fcd.ACTIVE_DATE_UTC >= p.signup_start
+      AND fcd.ACTIVE_DATE_UTC < p.today
+      AND fcd.ORDER_CREATED_TIME >= p.signup_start
+      AND fcd.ORDER_CREATED_TIME < p.today
+  ),
+  -- 5) First delivery created during the first session window + 10 min (only for consumers who actually purchased in-session)
+  first_order_in_first_session AS (
+    SELECT
+      pifs.CONSUMER_ID,
+      fcd.DELIVERY_ID,
+      fcd.ORDER_CREATED_TIME,
+      COALESCE(fcd.IS_PROMO, 0) AS IS_PROMO,
+      COALESCE(fcd.IS_PROMO_NEW_CX, 0) AS IS_PROMO_NEW_CX
+    FROM
+      purchase_in_first_session pifs
+      JOIN first_session fs
+        ON fs.CONSUMER_ID = pifs.CONSUMER_ID
+      JOIN edw.growth.fact_consumer_deliveries fcd
+        ON fcd.CONSUMER_ID = pifs.CONSUMER_ID
+       AND fcd.ORDER_CREATED_TIME >= fs.first_session_start
+       AND fcd.ORDER_CREATED_TIME < DATEADD(minute, 10, fs.first_session_end)
+      JOIN params p ON 1 = 1
+    WHERE
+      -- Strong date pruning to avoid scanning the full table
+      fcd.ACTIVE_DATE_UTC >= p.signup_start
+      AND fcd.ACTIVE_DATE_UTC < p.today
+      AND fcd.ORDER_CREATED_TIME >= p.signup_start
+      AND fcd.ORDER_CREATED_TIME < p.today
+    QUALIFY
+      ROW_NUMBER() OVER (
+        PARTITION BY pifs.CONSUMER_ID
+        ORDER BY fcd.ORDER_CREATED_TIME ASC
+      ) = 1
+  )
+SELECT
+  COUNT(DISTINCT cc.USER_ID) AS mature_signups_last_365d,
+  COUNT(DISTINCT fs.CONSUMER_ID) AS have_first_session_after_signup,
+
+  -- Users who placed an order during first session (or within 10 min after session end)
+  COUNT(DISTINCT pifs.CONSUMER_ID) AS users_with_order_during_first_session,
+  ROUND(
+    100.0 * COUNT(DISTINCT pifs.CONSUMER_ID) / NULLIF(COUNT(DISTINCT fs.CONSUMER_ID), 0),
+    2
+  ) AS pct_order_in_first_session,
+
+  -- Among those who ordered in first session (per your purchase event definition), how many used any promo?
+  COUNT(DISTINCT CASE WHEN fof.IS_PROMO = 1 THEN fof.CONSUMER_ID END) AS ordered_with_any_promo_in_first_session,
+  ROUND(
+    100.0 * COUNT(DISTINCT CASE WHEN fof.IS_PROMO = 1 THEN fof.CONSUMER_ID END)
+      / NULLIF(COUNT(DISTINCT pifs.CONSUMER_ID), 0),
+    2
+  ) AS pct_of_first_session_orders_with_any_promo,
+
+  -- NPWS proxy: new customer promo
+  COUNT(DISTINCT CASE WHEN fof.IS_PROMO_NEW_CX = 1 THEN fof.CONSUMER_ID END) AS ordered_with_new_customer_promo_in_first_session,
+  ROUND(
+    100.0 * COUNT(DISTINCT CASE WHEN fof.IS_PROMO_NEW_CX = 1 THEN fof.CONSUMER_ID END)
+      / NULLIF(COUNT(DISTINCT pifs.CONSUMER_ID), 0),
+    2
+  ) AS pct_of_first_session_orders_with_new_customer_promo,
+
+  -- Of those who used a promo, what share are NPWS (new-customer promo)?
+  ROUND(
+    100.0 * COUNT(DISTINCT CASE WHEN fof.IS_PROMO_NEW_CX = 1 THEN fof.CONSUMER_ID END)
+      / NULLIF(COUNT(DISTINCT CASE WHEN fof.IS_PROMO = 1 THEN fof.CONSUMER_ID END), 0),
+    2
+  ) AS pct_of_promo_users_that_are_new_customer_promo
+FROM
+  cohort_consumers cc
+  LEFT JOIN first_session fs ON fs.CONSUMER_ID = cc.CONSUMER_ID
+  LEFT JOIN purchase_in_first_session pifs ON pifs.CONSUMER_ID = fs.CONSUMER_ID
+  LEFT JOIN first_order_in_first_session fof ON fof.CONSUMER_ID = pifs.CONSUMER_ID;

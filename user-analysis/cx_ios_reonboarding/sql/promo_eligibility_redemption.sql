@@ -4,6 +4,7 @@
 
 CREATE OR REPLACE TABLE proddb.fionafan.cx_ios_reonboarding_promo_user_level AS (
 
+
 WITH campaign_ids AS (
   -- All campaign IDs from the reonboarding campaigns
   SELECT '6fb7311c-bd92-4be8-9f39-b6d47a3ebf4f' AS id UNION ALL
@@ -134,6 +135,24 @@ redemptions AS (
     FROM proddb.fionafan.cx_ios_reonboarding_campaign_user_level
     WHERE redemptions_since_2025_09_01 > 0
     GROUP BY user_id
+),
+
+-- Get order metrics for 28 days post-exposure
+orders_28d AS (
+    SELECT
+        exp.consumer_id,
+        exp.exposure_time,
+        COUNT(DISTINCT d.delivery_id) AS total_orders_28d,
+        COUNT(DISTINCT d.delivery_id) / 28.0 AS order_rate_28d,
+        MIN(d.created_at) AS first_order_date_post_exposure,
+        DATEDIFF('day', exp.exposure_time, MIN(d.created_at)) AS days_to_first_order
+    FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures exp
+    INNER JOIN dimension_deliveries d
+        ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = d.creator_id::varchar
+        AND d.created_at >= exp.exposure_time
+        AND d.created_at < DATEADD('day', 28, exp.exposure_time)
+        AND d.is_filtered_core = 1
+    GROUP BY exp.consumer_id, exp.exposure_time
 )
 
 -- Main query: Left join everything to exposures
@@ -161,7 +180,13 @@ SELECT
     COALESCE(red.redemption_count, 0) AS redemption_count,
     COALESCE(red.unique_campaigns_redeemed, 0) AS unique_campaigns_redeemed,
     COALESCE(red.total_discount_usd, 0) AS total_discount_usd,
-    red.last_redemption_date
+    red.last_redemption_date,
+    
+    -- Order metrics (28 days post-exposure)
+    COALESCE(ord.total_orders_28d, 0) AS total_orders_28d,
+    COALESCE(ord.order_rate_28d, 0) AS order_rate_28d,
+    ord.first_order_date_post_exposure,
+    ord.days_to_first_order
 
 FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures exp
 
@@ -181,10 +206,43 @@ LEFT JOIN did_reonboarding dr
 LEFT JOIN redemptions red
     ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = red.consumer_id::varchar
 
+-- Left join to get order metrics (strip quotes from consumer_id)
+LEFT JOIN orders_28d ord
+    ON REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '')::varchar = REPLACE(REPLACE(ord.consumer_id, '"', ''), '\\', '')::varchar
+    AND exp.exposure_time = ord.exposure_time
+
 -- Deduplicate: one row per user
 QUALIFY ROW_NUMBER() OVER (PARTITION BY REPLACE(REPLACE(exp.consumer_id, '"', ''), '\\', '') ORDER BY exp.exposure_time) = 1
 );
 
+-- User-level data for statistical testing
+SELECT 
+    tag,
+    is_promo_eligible,
+    dd_device_id,
+    user_id,
+    total_orders_28d,
+    order_rate_28d,
+    CASE WHEN total_orders_28d > 0 THEN 1 ELSE 0 END AS had_order_28d,
+    saw_promo_page,
+    did_reonboarding_flow,
+    has_redeemed
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level;
+
+-- Aggregate summary with sample sizes (for reference)
+SELECT 
+    tag,
+    is_promo_eligible,
+    COUNT(DISTINCT dd_device_id) AS n_users,
+    SUM(total_orders_28d) AS total_orders,
+    SUM(total_orders_28d) / COUNT(DISTINCT dd_device_id) AS order_rate_28d,
+    COUNT(DISTINCT CASE WHEN total_orders_28d > 0 THEN dd_device_id END) AS users_with_orders,
+    COUNT(DISTINCT CASE WHEN total_orders_28d > 0 THEN dd_device_id END)::FLOAT / COUNT(DISTINCT dd_device_id) AS mau_28d,
+    AVG(order_rate_28d) AS avg_user_order_rate,
+    STDDEV(order_rate_28d) AS stddev_order_rate
+FROM proddb.fionafan.cx_ios_reonboarding_promo_user_level
+GROUP BY ALL
+ORDER BY is_promo_eligible, tag;
 
 
 select *

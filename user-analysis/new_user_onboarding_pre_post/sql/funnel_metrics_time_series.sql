@@ -7,12 +7,12 @@ SELECT DISTINCT
   DD_DEVICE_ID,
   replace(lower(CASE WHEN DD_DEVICE_ID like 'dx_%' then DD_DEVICE_ID else 'dx_'||DD_DEVICE_ID end), '-') as dd_device_id_filtered,
   dd_platform,
-  lower(onboarding_type) as onboarding_type,
+  case when onboarding_type is null then 'new_user' else lower(onboarding_type) end as onboarding_type,
   promo_title,
   'start_page' as onboarding_page
 FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
-WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -90 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
-  AND ((lower(onboarding_type) = 'new_user') OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
+WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -365 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
+  AND ((lower(onboarding_type) = 'new_user' or onboarding_type is null) OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
 
 UNION ALL
 
@@ -26,7 +26,7 @@ SELECT DISTINCT
   NULL as promo_title,
   'start_page' as onboarding_page
 FROM iguazu.consumer.M_onboarding_page_view_ice
-WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -90 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
+WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -365 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
   AND lower(onboarding_type) = 'resurrected_user'
   AND lower(page) = 'welcomeback'
   AND lower(dd_platform) = 'ios'
@@ -34,6 +34,33 @@ WHERE iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -90 as
 
 
 
+SELECT DISTINCT
+  cast(iguazu_timestamp as date) AS day,
+  count(distinct consumer_id) as consuemr_id_cnt
+FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
+WHERE 1=1 
+-- and iguazu_timestamp BETWEEN (SELECT start_dt FROM (SELECT current_date -365 as start_dt)) AND (SELECT end_dt FROM (SELECT current_date as end_dt))
+  AND (lower(onboarding_type) = 'new_user' or onboarding_type is null)
+  GROUP BY 1
+;
+
+with start_of_funnel as (
+  select day, count(distinct consumer_id) start_of_funnel_cnt
+from proddb.fionafan.onboarding_start_funnel where onboarding_type = 'new_user' group by all order by all
+),
+end_of_funnel as (
+  SELECT cast(iguazu_timestamp as date) AS day, count(distinct consumer_id) as end_of_funnel_cnt
+  FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
+  WHERE 1=1
+  and iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1 and lower(onboarding_type) = 'new_user' or onboarding_type is null
+  GROUP BY 1
+)
+select s.day, s.start_of_funnel_cnt, e.end_of_funnel_cnt
+from start_of_funnel s
+left join end_of_funnel e
+on s.day = e.day
+where s.day >= '2025-01-01' and s.day < current_date + 1
+;
 
 CREATE OR REPLACE  TABLE proddb.fionafan.onboarding_funnel_flags AS
 WITH p AS (
@@ -42,13 +69,13 @@ WITH p AS (
 start_clicks AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_start_promo_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND ((lower(onboarding_type) = 'new_user') OR (lower(dd_platform) = 'android' AND lower(onboarding_type) = 'resurrected_user'))
   GROUP BY 1,2
   UNION
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(onboarding_type) = 'resurrected_user'
     AND lower(page) = 'welcomeback'
     AND lower(dd_platform) = 'ios'
@@ -58,82 +85,82 @@ start_clicks AS (
 notif_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'notification'
   GROUP BY 1,2
 ),
 notif_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'notification'
   GROUP BY 1,2
 ),
 marketing_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'marketingsms'
   GROUP BY 1,2
 ),
 marketing_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'marketingsms'
   GROUP BY 1,2
 ),
 preference_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) like '%preference%'
   GROUP BY 1,2
 ),
 preference_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) like '%preference%'
   GROUP BY 1,2
 ),
 att_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'att'
   GROUP BY 1,2
 ),
 att_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.M_onboarding_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND lower(page) = 'att'
   GROUP BY 1,2
 ),
 end_page_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
   GROUP BY 1,2
 ),
 end_page_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
   GROUP BY 1,2
 ),
 end_page_promo_view AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_end_promo_page_view_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND POSITION('%' IN promo_title) > 0
   GROUP BY 1,2
 ),
 end_page_promo_click AS (
   SELECT cast(iguazu_timestamp as date) AS day, consumer_id
   FROM iguazu.consumer.m_onboarding_end_promo_page_click_ice
-  WHERE iguazu_timestamp >= current_date - 90 AND iguazu_timestamp < current_date + 1
+  WHERE iguazu_timestamp >= current_date - 365 AND iguazu_timestamp < current_date + 1
     AND POSITION('%' IN promo_title) > 0
   GROUP BY 1,2
 ),
@@ -142,7 +169,7 @@ eligible AS (
   FROM IGUAZU.SERVER_EVENTS_PRODUCTION.CAMPAIGN_ELIGIBLE_EVENTS
   WHERE placement_type = 'PLACEMENT_TYPE_POST_ONBOARDING'
     AND is_eligible = TRUE
-    AND iguazu_sent_at >= current_date - 90 AND iguazu_sent_at < current_date + 1
+    AND iguazu_sent_at >= current_date - 365 AND iguazu_sent_at < current_date + 1
   GROUP BY 1,2
 )
 SELECT 
@@ -187,7 +214,7 @@ LEFT JOIN eligible el ON el.day = p.day AND el.consumer_id = p.consumer_id
 
 select day, sum(end_page_promo_view_flag),count(1), avg(end_page_promo_view_flag) from proddb.fionafan.onboarding_funnel_flags where dd_platform='ios' group by all;
 -- where consumer_id = '1964455115' and day = '2025-08-12';
-
+select * from proddb.fionafan.onboarding_funnel_flags limit 10;
 
 -- Onboarding funnel metrics with multi-day conversion windows
 -- Base: proddb.fionafan.onboarding_funnel_flags (consumer_id, device_id, day level)
@@ -233,7 +260,7 @@ same_day_conversions AS (
         MAX(COALESCE(f.unique_checkout_page_visitor, 0)) AS d0_checkout_visitor,
         MAX(COALESCE(f.unique_purchaser, 0)) AS d0_purchaser
     FROM proddb.public.fact_unique_visitors_full_pt f
-    where f.event_date >= current_date - 90 and f.event_date < current_date + 1
+    where f.event_date >= current_date - 365 and f.event_date < current_date + 1
     GROUP BY event_date, dd_device_id_filtered
 ),
 
@@ -252,7 +279,7 @@ forward_7d_conversions AS (
         ON replace(lower(CASE WHEN f.dd_device_id like 'dx_%' then f.dd_device_id else 'dx_'||f.dd_device_id end), '-') = b.dd_device_id_filtered
         AND DATE(f.event_date) >= b.day
         AND DATE(f.event_date) < DATEADD(day, 7, b.day)
-    where f.event_date >= current_date - 90 and f.event_date < current_date + 1
+    where f.event_date >= current_date - 365 and f.event_date < current_date + 1
     GROUP BY b.day, b.dd_device_id_filtered
 ),
 
@@ -271,7 +298,7 @@ forward_14d_conversions AS (
         ON replace(lower(CASE WHEN f.dd_device_id like 'dx_%' then f.dd_device_id else 'dx_'||f.dd_device_id end), '-') = b.dd_device_id_filtered
         AND DATE(f.event_date) >= b.day
         AND DATE(f.event_date) < DATEADD(day, 14, b.day)
-    where f.event_date >= current_date - 90 and f.event_date < current_date + 1
+    where f.event_date >= current_date - 365 and f.event_date < current_date + 1
     GROUP BY b.day, b.dd_device_id_filtered
 ),
 
@@ -290,7 +317,7 @@ forward_28d_conversions AS (
         ON replace(lower(CASE WHEN f.dd_device_id like 'dx_%' then f.dd_device_id else 'dx_'||f.dd_device_id end), '-') = b.dd_device_id_filtered
         AND DATE(f.event_date) >= b.day
         AND DATE(f.event_date) < DATEADD(day, 28, b.day)
-    where f.event_date >= current_date - 90 and f.event_date < current_date + 1
+    where f.event_date >= current_date - 365 and f.event_date < current_date + 1
     GROUP BY b.day, b.dd_device_id_filtered
 )
 

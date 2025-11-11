@@ -7,7 +7,7 @@ CREATE OR REPLACE TEMP TABLE start_page_view AS (
     consumer_id::varchar AS consumer_id,
     CAST(iguazu_timestamp AS DATE) AS day
   FROM iguazu.consumer.m_onboarding_start_promo_page_view_ice
-  WHERE iguazu_timestamp BETWEEN '2025-10-15' AND '2025-10-28'
+  WHERE iguazu_timestamp BETWEEN '2025-10-15' AND '2025-10-27'
 );
 
 CREATE OR REPLACE TEMP TABLE exposure_all AS (
@@ -25,12 +25,10 @@ CREATE OR REPLACE TEMP TABLE exposure_all AS (
     AND ee.experiment_version::INT = 1
     AND ee.tag <> 'overridden'
     AND convert_timezone('UTC','America/Los_Angeles', ee.EXPOSURE_TIME)
-        BETWEEN '2025-10-15' AND '2025-10-28'
+        BETWEEN '2025-10-15' AND '2025-10-27'
   GROUP BY 1,2,3
 );
 create or replace temp table exposure_all_new as (
-
-
 select e.*, c.consumer_bucket, c.CAMPAIGN_NAME
 from exposure_all e
 inner join edw.consumer.campaign_analyzer_exposures c
@@ -53,6 +51,7 @@ ON e.consumer_id::varchar = dd.creator_id::varchar
     AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-10-15' AND '2025-10-27'
     AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) >= e.ts
     AND DATEDIFF('day',e.day,convert_timezone('UTC','America/Los_Angeles',dd.created_at)) BETWEEN 1 AND 28
+and e.consumer_bucket is not null
 );
 create OR REPLACE TEMP TABLE checkout_all_old AS ( 
 
@@ -78,6 +77,7 @@ LEFT JOIN proddb.public.fact_order_discounts_and_promotions_extended p
 );
 
 create or replace temp table checkout_all_new as (
+
     SELECT e.tag
         , e.consumer_id 
         , e.day AS exposure_date
@@ -97,6 +97,7 @@ ON e.consumer_id::varchar = dd.creator_id::varchar
 LEFT JOIN proddb.public.fact_order_discounts_and_promotions_extended p
   ON p.delivery_id = dd.delivery_id
   AND promo_code ilike '%NEW40OFF%'
+  and e.consumer_bucket is not null
 );
 
 
@@ -111,7 +112,6 @@ GROUP BY 1,2,3
 
 
 CREATE OR REPLACE TEMP TABLE VP_all AS
-
 SELECT tag, consumer_bucket
         , SUM(D28_VP_per_cx) / NULLIF(COUNT(DISTINCT consumer_id),0) AS D28_VP
 FROM VP_per_Cx_all
@@ -120,6 +120,7 @@ GROUP BY 1,2
 
 
 CREATE OR REPLACE TEMP TABLE D28_OR_all AS
+
 SELECT tag, consumer_bucket
        , COUNT(DISTINCT DELIVERY_ID) / NULLIF(COUNT(DISTINCT consumer_id),0) AS D28_OR
 FROM checkout_all_new
@@ -156,6 +157,60 @@ SELECT * FROM overall_perf;
 select * from overall_cpio;
 
 
+
+-----------------------old query
+
+CREATE OR REPLACE TEMP TABLE VP_per_Cx_all AS
+SELECT tag
+        , consumer_id
+        -- , consumer_bucket
+        , SUM(VP) / NULLIF(COUNT(DISTINCT consumer_id),0) AS D28_VP_per_cx
+FROM checkout_all_new
+GROUP BY 1,2
+;     
+
+
+CREATE OR REPLACE TEMP TABLE VP_all AS
+SELECT tag -- consumer_bucket
+        , SUM(D28_VP_per_cx) / NULLIF(COUNT(DISTINCT consumer_id),0) AS D28_VP
+FROM VP_per_Cx_all
+GROUP BY 1
+;    
+
+
+CREATE OR REPLACE TEMP TABLE D28_OR_all AS
+SELECT tag -- consumer_bucket
+       , COUNT(DISTINCT DELIVERY_ID) / NULLIF(COUNT(DISTINCT consumer_id),0) AS D28_OR
+FROM checkout_all_new
+GROUP BY 1
+;   
+
+
+--------- Performance of All exposure
+CREATE OR REPLACE TEMP TABLE overall_perf AS
+SELECT o.tag 
+        , o.d28_or AS d28_or_overall
+        , D28_VP AS D28_VP_overall
+FROM D28_OR_all o
+LEFT JOIN VP_all v
+    ON o.tag = v.tag
+--    AND o.wk = v.wk
+ORDER BY 1,2
+;
+
+CREATE OR REPLACE TEMP TABLE overall_cpio AS
+SELECT p1.*
+        , (p1.D28_VP_overall - p2.D28_VP_overall) / -(p1.d28_or_overall - p2.d28_or_overall) AS d28_CPIO_overall
+FROM overall_perf p1
+LEFT JOIN overall_perf p2
+--    ON p1.wk = p2.wk
+    ON p1.tag != p2.tag
+    AND p1.tag <>'control'
+ORDER BY 1, 2
+;
+
+SELECT * FROM overall_perf;
+select * from overall_cpio;
 
 
 -------- Redemption (filtered to start_page_view)
@@ -415,8 +470,12 @@ select tag, count(distinct consumer_id) from exposure_all group by  all;
 
 
 select 191666/333883;
+select 191666/699161;
+treatment	699161
+control	36599
 
-
-
-select CAMPAIGN_NAME, consumer_bucket, count(1) 
-from edw.consumer.campaign_analyzer_exposures where exposure_time between '2025-10-15' and '2025-10-27' group by all;
+select  case when consumer_bucket = 'npws_control' then 'control' else 'treatment' end as consumer_bucket, count(distinct consumer_id) 
+from edw.consumer.campaign_analyzer_exposures 
+where exposure_time between '2025-10-15' and '2025-10-27' 
+and campaign_name ilike '%npws_redemption_window_q225%'
+group by all;

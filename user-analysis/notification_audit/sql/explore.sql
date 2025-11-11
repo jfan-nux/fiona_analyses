@@ -184,12 +184,12 @@ SELECT
 
     -- Uninstall after open metrics (message-level denominator)
     COUNT(DISTINCT CASE WHEN open_within_1h=1 AND uninstall_within_1h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_after_open_within_1h_rate,
-    COUNT(DISTINCT CASE WHEN open_within_4h=1 AND uninstall_within_1h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_after_open_within_4h_rate,
-    COUNT(DISTINCT CASE WHEN open_within_24h=1 AND uninstall_within_1h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_after_open_within_24h_rate,
+    COUNT(DISTINCT CASE WHEN open_within_4h=1 AND uninstall_within_4h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_after_open_within_4h_rate,
+    COUNT(DISTINCT CASE WHEN open_within_24h=1 AND uninstall_within_24h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_after_open_within_24h_rate,
     
     -- Uninstall among non-purchasers metrics (message-level denominator)
     COUNT(DISTINCT CASE WHEN ordered_at IS NULL AND uninstalled_at IS NOT NULL THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_non_purchasers_rate,
-    COUNT(DISTINCT CASE WHEN order_within_1h=0 AND uninstall_within_4h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_non_purchasers_within_1h_rate,
+    COUNT(DISTINCT CASE WHEN order_within_1h=0 AND uninstall_within_1h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_non_purchasers_within_1h_rate,
     COUNT(DISTINCT CASE WHEN order_within_4h=0 AND uninstall_within_4h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_non_purchasers_within_4h_rate,
     COUNT(DISTINCT CASE WHEN order_within_24h=0 AND uninstall_within_24h=1 THEN deduped_message_id END)/NULLIF(COUNT(DISTINCT deduped_message_id), 0) AS uninstall_non_purchasers_within_24h_rate,
     

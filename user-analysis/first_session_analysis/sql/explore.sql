@@ -629,3 +629,8 @@ avg(case when session_type = 'latest_week_2' then similarity_funnel_store else n
 avg(case when session_type = 'latest_week_3' then similarity_funnel_store else null end) as avg_latest_week_3_similarity_funnel_store,
 avg(case when session_type = 'latest_week_4' then similarity_funnel_store else null end) as avg_latest_week_4_similarity_funnel_store
 from proddb.fionafan.feed_evolution_1111_cosine_similarity group by all ;
+
+
+select * from proddb.fionafan.first_session_second_session_return_logit_results 
+where covariate in ( 'ATTRIBUTION_CNT_BANNER', 'ATTRIBUTION_FIRST_CLICK_FROM_SEARCH')
+limit 1000;
