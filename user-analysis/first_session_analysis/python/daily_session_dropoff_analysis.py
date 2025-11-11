@@ -185,7 +185,9 @@ def plot_session_dropoff(df, day_label, output_pdf):
     ax2.legend(loc='best', fontsize=10)
     ax2.grid(True, alpha=0.3)
     ax2.set_xlim(1, 28)
-    ax2.set_ylim(0, 100)
+    # Set y-axis max to 110% of actual data max
+    retention_max = df['retention_rate_from_baseline'].max()
+    ax2.set_ylim(0, retention_max * 1.1)
     
     # Subplot 3: Day-over-Day Changes (Retention)
     ax3 = axes[2]

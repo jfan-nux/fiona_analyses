@@ -1,5 +1,5 @@
--- Step 5: Add notification data for all cohorts
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_notifications_base AS
+
 
 SELECT
   n.*,
@@ -9,6 +9,7 @@ SELECT
   FLOOR(DATEDIFF(day, c.exposure_time, n.SENT_AT_DATE) / 7) + 1 AS lifecycle_week,
   DATEDIFF(day, c.exposure_time, n.SENT_AT_DATE) AS days_since_onboarding
 FROM edw.consumer.fact_consumer_notification_engagement n
+
 INNER JOIN proddb.fionafan.all_user_july_cohort c 
   ON n.consumer_id = c.consumer_id
 WHERE 1=1
@@ -26,9 +27,10 @@ SELECT
   -- count(distinct consumer_id) as unique_consumers,
   count(distinct deduped_message_id)/count(distinct consumer_id)  as message_per_consumer
 FROM proddb.fionafan.all_user_notifications_base
-where notification_source = 'FPN Postal Service' 
+-- where notification_source = 'FPN Postal Service' 
+where notification_source = 'Braze' 
 and notification_channel = 'PUSH'
-    and notification_message_type_overall = 'TRANSACTIONAL'
+    and notification_message_type_overall != 'TRANSACTIONAL'
     and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
     and is_valid_send = 1 
 group by all
@@ -100,7 +102,12 @@ ORDER BY cohort_type;
 
 
 -- Step 6: Add Braze campaign data and tag categorization
+
+-- create or replace table proddb.fionafan.all_user_notifications_with_braze_deduped_consumer_id AS(
+--     select * from proddb.fionafan.all_user_notifications_with_braze 
+-- );
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_notifications_with_braze AS
+
 
 WITH canvas_tags AS (
   WITH base AS (
@@ -276,312 +283,217 @@ SELECT DISTINCT
   EXTRACT(hour FROM n.sent_at) AS send_hour_of_day
 FROM proddb.fionafan.all_user_notifications_base n
 LEFT JOIN fusion_dev.test_rahul_narakula.braze_sent_messages_push_bt bz 
-  ON bz.dispatch_id = n.message_id 
+  ON bz.dispatch_id = n.deduped_message_id 
   AND bz.external_id = n.consumer_id
 LEFT JOIN canvas_tags ct 
   ON ct.canvas_id = coalesce(bz.canvas_id, n.canvas_id, bz.campaign_id, n.campaign_id);
-
--- where deduped_message_id='e73ef50a-1e1e-41ac-b465-4ff620ff20fd' limit 10;
-
--- Validation of notifications with Braze
-SELECT 
-  cohort_type,
-  COUNT(DISTINCT consumer_id) as unique_consumers,
-  COUNT(*) as total_notifications,
-  COUNT(DISTINCT master_campaign_name) as unique_campaigns,
-  SUM(CASE WHEN master_campaign_name IS NOT NULL THEN 1 ELSE 0 END) as notifications_with_braze,
-  ROUND(100.0 * SUM(CASE WHEN master_campaign_name IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_with_braze
-FROM proddb.fionafan.all_user_notifications_with_braze
-
-GROUP BY cohort_type
-ORDER BY cohort_type;
+select notification_source, case when n.has_dashpass is null then 0 else 1 end as braze_present, count(1) cnt from proddb.fionafan.all_user_notifications_with_braze n
+group by all;
 
 
--- Notification engagement analysis by cohort and tag category
-SELECT 
-  cohort_type,
-  CASE 
-    WHEN has_new_customer_experience = 1 THEN 'New Customer Experience'
-    WHEN has_offers_promos = 1 THEN 'Offers & Promos'
-    WHEN has_dashpass = 1 THEN 'DashPass'
-    WHEN has_churned_reengagement = 1 THEN 'Churned & Reengagement'
-    WHEN has_cart_abandonment = 1 THEN 'Cart Abandonment'
-    WHEN has_engagement_recommendations = 1 THEN 'Engagement & Recommendations'
-    WHEN has_new_verticals_grocery = 1 THEN 'New Verticals & Grocery'
-    WHEN has_reminders_notifications = 1 THEN 'Reminders & Notifications'
-    ELSE 'Other/Unknown'
-  END as primary_tag_category,
-  COUNT(DISTINCT consumer_id) as unique_consumers,
-  COUNT(*) as total_notifications,
-  COUNT(distinct deduped_message_id) as total_messages,
-  -- SUM(CASE WHEN notification_action = 'OPEN' THEN 1 ELSE 0 END) as opens,
-  -- ROUND(100.0 * SUM(CASE WHEN notification_action = 'OPEN' THEN 1 ELSE 0 END) / COUNT(*), 2) as open_rate,
-  AVG(hours_since_exposure) as avg_hours_since_exposure
-FROM proddb.fionafan.all_user_notifications_with_braze
-WHERE master_campaign_name IS NOT NULL
-GROUP BY cohort_type, primary_tag_category
-ORDER BY cohort_type, total_notifications DESC;
+select count(distinct message_id ) from (
+select message_id, device_id, count(1) cnt from proddb.fionafan.all_user_notifications_with_braze 
+where 1=1
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and is_valid_send = 1 and lifecycle_week >0 
+group by all having cnt>1 order by cnt desc );
 
 
--- Step 6: Push Opt-In Data for All Cohorts
--- Get push notification preferences at time of exposure and current state
-
--- Push opt-in status at exposure time (within 1 day after exposure)
-CREATE OR REPLACE TABLE proddb.fionafan.all_user_push_optin_at_exposure AS
-
-SELECT 
-  c.cohort_type,
-  c.consumer_id,
-  c.exposure_time,
-  c.onboarding_day,
-  c.lifestage,
-  -- Get push opt-in status closest to exposure time
-  FIRST_VALUE(p.is_push_opted_in) OVER (
-    PARTITION BY c.consumer_id, c.cohort_type 
-    ORDER BY p.event_timestamp
-  ) as push_opted_in_at_exposure,
-  FIRST_VALUE(p.event_timestamp) OVER (
-    PARTITION BY c.consumer_id, c.cohort_type 
-    ORDER BY p.event_timestamp
-  ) as push_status_timestamp,
-  DATEDIFF('hour', c.exposure_time, 
-    FIRST_VALUE(p.event_timestamp) OVER (
-      PARTITION BY c.consumer_id, c.cohort_type 
-      ORDER BY p.event_timestamp
-    )
-  ) as hours_from_exposure_to_status
-FROM proddb.fionafan.all_user_july_cohort c
-LEFT JOIN edw.consumer.fact_consumer_notification_preference_scd p
-
-  ON c.consumer_id = p.consumer_id
-  AND p.event_timestamp >= c.exposure_time
-  AND p.event_timestamp <= DATEADD('day', 1, c.exposure_time)
-QUALIFY ROW_NUMBER() OVER (
-  PARTITION BY c.consumer_id, c.cohort_type 
-  ORDER BY p.event_timestamp
-) = 1;
+select * from proddb.fionafan.all_user_notifications_with_braze where message_id = '43b57de6-d587-4383-9781-bc97c779ca6e' limit 10;
 
 
--- Current push opt-in status (most recent as of query run)
-CREATE OR REPLACE TABLE proddb.fionafan.all_user_push_optin_current AS
+select notification_source, case when n.bz_campaign_id is null then 0 else 1 end as braze_present, count(1) cnt from proddb.fionafan.all_user_notifications_with_braze n
 
-SELECT 
-  c.cohort_type,
-  c.consumer_id,
-  c.exposure_time,
-  c.onboarding_day,
-  c.lifestage,
-  p.is_push_opted_in as push_opted_in_current,
-  p.event_timestamp as current_status_timestamp,
-  DATEDIFF('day', c.exposure_time, p.event_timestamp) as days_from_exposure_to_current
-FROM proddb.fionafan.all_user_july_cohort c
-LEFT JOIN edw.consumer.fact_consumer_notification_preference_scd p
-  ON c.consumer_id = p.consumer_id
-QUALIFY ROW_NUMBER() OVER (
-  PARTITION BY c.consumer_id, c.cohort_type 
-  ORDER BY p.event_timestamp DESC
-) = 1;
+group by all;
 
+select template_name,listagg(distinct notification_message_type, ', ') within group (order by notification_message_type) as notification_message_types,
+listagg(distinct campaign_name, ', ') within group (order by campaign_name) as campaign_names,
+ count(1) cnt from proddb.fionafan.all_user_notifications_with_braze 
+where 1=1
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL' and notification_message_type!='TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and notification_source = 'FPN Postal Service'
+and is_valid_send = 1
+group by all having cnt>1000 order by cnt desc limit 1000;
 
--- Combined push opt-in table
-CREATE OR REPLACE TABLE proddb.fionafan.all_user_push_optin_combined AS
-
-SELECT 
-  e.cohort_type,
-  e.consumer_id,
-  e.exposure_time,
-  e.onboarding_day,
-  e.lifestage,
-  e.push_opted_in_at_exposure,
-  e.push_status_timestamp as exposure_status_timestamp,
-  e.hours_from_exposure_to_status,
-  c.push_opted_in_current,
-  c.current_status_timestamp,
-  c.days_from_exposure_to_current,
-  -- Did user change their push preference?
-  CASE 
-    WHEN e.push_opted_in_at_exposure IS NULL THEN 'Unknown at Exposure'
-    WHEN c.push_opted_in_current IS NULL THEN 'Unknown Current'
-    WHEN e.push_opted_in_at_exposure = c.push_opted_in_current THEN 'No Change'
-    WHEN e.push_opted_in_at_exposure = TRUE AND c.push_opted_in_current = FALSE THEN 'Opted Out'
-    WHEN e.push_opted_in_at_exposure = FALSE AND c.push_opted_in_current = TRUE THEN 'Opted In'
-    ELSE 'Other'
-  END as push_preference_change
-FROM proddb.fionafan.all_user_push_optin_at_exposure e
-LEFT JOIN proddb.fionafan.all_user_push_optin_current c
-  ON e.cohort_type = c.cohort_type
-  AND e.consumer_id = c.consumer_id;
+select distinct campaign_name from proddb.fionafan.all_user_notifications_with_braze 
+where 1=1
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL' and notification_message_type!='TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and notification_source = 'FPN Postal Service'
+and campaign_name ilike '%abandon%'
+and is_valid_send = 1 limit 100;
 
 
--- Validation: Push opt-in summary by cohort
-SELECT 
-  cohort_type,
-  COUNT(DISTINCT consumer_id) as total_consumers,
-  
-  -- At exposure
-  SUM(CASE WHEN push_opted_in_at_exposure = TRUE THEN 1 ELSE 0 END) as opted_in_at_exposure,
-  SUM(CASE WHEN push_opted_in_at_exposure = FALSE THEN 1 ELSE 0 END) as opted_out_at_exposure,
-  SUM(CASE WHEN push_opted_in_at_exposure IS NULL THEN 1 ELSE 0 END) as unknown_at_exposure,
-  ROUND(100.0 * SUM(CASE WHEN push_opted_in_at_exposure = TRUE THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_opted_in_at_exposure,
-  
-  -- Current
-  SUM(CASE WHEN push_opted_in_current = TRUE THEN 1 ELSE 0 END) as opted_in_current,
-  SUM(CASE WHEN push_opted_in_current = FALSE THEN 1 ELSE 0 END) as opted_out_current,
-  SUM(CASE WHEN push_opted_in_current IS NULL THEN 1 ELSE 0 END) as unknown_current,
-  ROUND(100.0 * SUM(CASE WHEN push_opted_in_current = TRUE THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_opted_in_current,
-  
-  -- Changes
-  SUM(CASE WHEN push_preference_change = 'No Change' THEN 1 ELSE 0 END) as no_change,
-  SUM(CASE WHEN push_preference_change = 'Opted In' THEN 1 ELSE 0 END) as opted_in_after_exposure,
-  SUM(CASE WHEN push_preference_change = 'Opted Out' THEN 1 ELSE 0 END) as opted_out_after_exposure,
-  ROUND(100.0 * SUM(CASE WHEN push_preference_change = 'Opted In' THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_opted_in_after_exposure
-  
-FROM proddb.fionafan.all_user_push_optin_combined
-GROUP BY cohort_type
-ORDER BY cohort_type;
+select notification_message_type, count(1) cnt from proddb.fionafan.all_user_notifications_with_braze 
+where 1=1
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL' and notification_message_type!='TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and is_valid_send = 1
+group by all order by cnt desc limit 1000;
+-- having cnt>1000 
 
-
--- Push opt-in rate by lifestage (for active and new cohorts)
-SELECT 
-  cohort_type,
-  lifestage,
-  COUNT(DISTINCT consumer_id) as total_consumers,
-  SUM(CASE WHEN push_opted_in_at_exposure = TRUE THEN 1 ELSE 0 END) as opted_in_at_exposure,
-  ROUND(100.0 * SUM(CASE WHEN push_opted_in_at_exposure = TRUE THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_opted_in_at_exposure,
-  SUM(CASE WHEN push_opted_in_current = TRUE THEN 1 ELSE 0 END) as opted_in_current,
-  ROUND(100.0 * SUM(CASE WHEN push_opted_in_current = TRUE THEN 1 ELSE 0 END) / COUNT(*), 2) as pct_opted_in_current
-FROM proddb.fionafan.all_user_push_optin_combined
-WHERE lifestage IS NOT NULL
-GROUP BY cohort_type, lifestage
-ORDER BY cohort_type, lifestage;
-
-
--- Consumer-Day Level Push Opt-In Status (Days 1-28 after exposure)
--- Uses SCD table to check if each day falls within scd_start_date and scd_end_date
-CREATE OR REPLACE TABLE proddb.fionafan.all_user_push_optin_daily AS
-
-WITH day_sequence AS (
-  -- Generate sequence of days 1-28
-  SELECT 
-    ROW_NUMBER() OVER (ORDER BY SEQ4()) as day_num
-  FROM TABLE(GENERATOR(ROWCOUNT => 28))
+WITH source AS (
+  SELECT
+    COALESCE(campaign_name, canvas_name, bz_campaign_name) AS master_campaign_name,
+    notification_message_type,
+    deduped_message_id
+  FROM proddb.fionafan.all_user_notifications_with_braze
+  WHERE 1=1
+    AND notification_channel = 'PUSH'
+    -- AND notification_source = 'FPN Postal Service'
+    AND notification_source = 'Braze'
+    AND notification_message_type_overall != 'TRANSACTIONAL'
+    AND notification_message_type != 'TRANSACTIONAL'
+    AND COALESCE(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+    AND is_valid_send = 1
+    -- AND cohort_type = 'post_onboarding'
 ),
 
-consumer_days AS (
-  -- Cross join cohort with days to get consumer-day grain
-  SELECT 
-    c.cohort_type,
-    c.consumer_id,
-    c.exposure_time,
-    c.onboarding_day,
-    c.lifestage,
-    d.day_num,
-    DATEADD('day', d.day_num, c.exposure_time::date) as calendar_date
-  FROM proddb.fionafan.all_user_july_cohort c
-  CROSS JOIN day_sequence d
+flagged AS (
+  SELECT
+    master_campaign_name,
+    notification_message_type,
+    deduped_message_id,
+
+    -- cart tokens (convenience, alcohol, 3p, groceries, grocery)
+    CASE WHEN lower(master_campaign_name) LIKE '%convenience%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%alcohol%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%3p%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%groceries%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%grocery%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%nv%' THEN 1 
+         ELSE 0 END AS is_nv,
+
+    -- fmx family: fmu / fmx / fm / adpt
+    CASE WHEN lower(master_campaign_name) LIKE '%fmu%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%fmx%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%fm%'  THEN 1
+         WHEN lower(master_campaign_name) LIKE '%adpt%' THEN 1
+         ELSE 0 END AS is_fmx,
+
+    CASE WHEN lower(master_campaign_name) LIKE '%new40off%' THEN 1 ELSE 0 END AS is_npws,
+    CASE WHEN lower(master_campaign_name) LIKE '%challenge%' THEN 1 ELSE 0 END AS is_challenge,
+
+    -- dashpass: contains 'dashpass' OR contains 'dp' and NOT 'adpt'
+    CASE WHEN lower(master_campaign_name) LIKE '%dashpass%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%dp%' AND lower(master_campaign_name) NOT LIKE '%adpt%' THEN 1
+         ELSE 0 END AS is_dashpass,
+
+    CASE WHEN lower(master_campaign_name) LIKE '%abandon%' THEN 1 ELSE 0 END AS is_abandon,
+
+    CASE WHEN lower(master_campaign_name) LIKE '%post_order%' THEN 1
+         WHEN lower(master_campaign_name) LIKE '%postcheckout%' THEN 1
+         ELSE 0 END AS is_post_order,
+
+    -- fixed typo: reorder
+    CASE WHEN lower(master_campaign_name) LIKE '%reorder%' THEN 1 ELSE 0 END AS is_reorder,
+
+    CASE WHEN lower(master_campaign_name) LIKE '%gift%' THEN 1 ELSE 0 END AS is_gift_card_campaign,
+
+    -- message-type based flags
+    CASE WHEN lower(notification_message_type) LIKE '%recommendation%' THEN 1 ELSE 0 END AS is_recommendation,
+    CASE WHEN lower(notification_message_type) LIKE '%doordash_offer%' THEN 1 ELSE 0 END AS is_doordash_offer,
+    CASE WHEN lower(notification_message_type) LIKE '%reminder%' THEN 1 ELSE 0 END AS is_reminder,
+    CASE WHEN lower(notification_message_type) LIKE '%store_offer%' THEN 1 ELSE 0 END AS is_store_offer
+
+  FROM source
 ),
 
-push_settings_with_flags AS (
-  -- Calculate opt-in flags from SCD3 table
-  SELECT 
-    consumer_id,
-    scd_start_date,
-    scd_end_date,
-    system_level_status,
-    product_updates_news_status,
-    prev_product_updates_news_status,
-    recommendations_status,
-    prev_recommendations_status,
-    reminders_status,
-    prev_reminders_status,
-    doordash_offers_status,
-    prev_doordash_offers_status,
-    store_offers_status,
-    prev_store_offers_status,
-    -- Calculate opt-in flags
-    CASE WHEN product_updates_news_status = 'on' AND prev_product_updates_news_status = 'off' THEN 1 ELSE 0 END AS product_update_push_opt_in,
-    CASE WHEN recommendations_status = 'on' AND prev_recommendations_status = 'off' THEN 1 ELSE 0 END AS recommendations_push_opt_in,
-    CASE WHEN reminders_status = 'on' AND prev_reminders_status = 'off' THEN 1 ELSE 0 END AS reminders_push_opt_in,
-    CASE WHEN doordash_offers_status = 'on' AND prev_doordash_offers_status = 'off' THEN 1 ELSE 0 END AS dd_offers_push_opt_in,
-    CASE WHEN store_offers_status = 'on' AND prev_store_offers_status = 'off' THEN 1 ELSE 0 END AS mx_offers_push_opt_in
-  FROM edw.consumer.dimension_consumer_push_settings_scd3
-  WHERE scd_start_date >= '2025-06-01' -- Include buffer before July
-),
+with_is_new AS (
+  SELECT
+    master_campaign_name,
+    notification_message_type,
+    deduped_message_id,
+    is_nv,
+    is_fmx,
+    is_npws,
+    is_challenge,
+    is_dashpass,
+    is_abandon,
+    is_post_order,
+    is_reorder,
+    is_gift_card_campaign,
+    is_recommendation,
+    is_doordash_offer,
+    is_reminder,
+    is_store_offer,
 
-push_settings_enhanced AS (
-  SELECT 
-    *,
-    GREATEST(
-      product_update_push_opt_in,
-      recommendations_push_opt_in,
-      reminders_push_opt_in,
-      dd_offers_push_opt_in,
-      mx_offers_push_opt_in
-    ) AS marketing_push_opt_in,
-    CASE 
-      WHEN GREATEST(product_update_push_opt_in, recommendations_push_opt_in, reminders_push_opt_in, dd_offers_push_opt_in, mx_offers_push_opt_in) = 1 
-        AND system_level_status = 'on' 
-      THEN 1 
-      ELSE 0 
-    END AS push_opt_in
-  FROM push_settings_with_flags
+    -- is_new if contains 'new' OR is_npws OR is_fmx
+    CASE WHEN lower(master_campaign_name) LIKE '%new%' THEN 1
+         WHEN is_npws = 1 THEN 1
+         WHEN is_fmx = 1 THEN 1
+         ELSE 0 END AS is_new
+  FROM flagged
 )
 
-SELECT 
-  cd.cohort_type,
-  cd.consumer_id,
-  cd.exposure_time,
-  cd.onboarding_day,
-  cd.lifestage,
-  cd.day_num,
-  cd.calendar_date,
-  -- Push opt-in status for this specific day
-  COALESCE(MAX(ps.push_opt_in), 0) as is_push_opted_in,
-  COALESCE(MAX(ps.marketing_push_opt_in), 0) as is_marketing_opted_in,
-  COALESCE(MAX(ps.product_update_push_opt_in), 0) as is_product_update_opted_in,
-  COALESCE(MAX(ps.recommendations_push_opt_in), 0) as is_recommendations_opted_in,
-  COALESCE(MAX(ps.reminders_push_opt_in), 0) as is_reminders_opted_in,
-  COALESCE(MAX(ps.dd_offers_push_opt_in), 0) as is_dd_offers_opted_in,
-  COALESCE(MAX(ps.mx_offers_push_opt_in), 0) as is_mx_offers_opted_in,
-  MAX(ps.system_level_status) as system_level_status
-FROM consumer_days cd
-LEFT JOIN push_settings_enhanced ps
-  ON cd.consumer_id = ps.consumer_id
-  AND cd.calendar_date >= ps.scd_start_date
-  AND cd.calendar_date < COALESCE(ps.scd_end_date, '9999-12-31')
-GROUP BY 
-  cd.cohort_type,
-  cd.consumer_id,
-  cd.exposure_time,
-  cd.onboarding_day,
-  cd.lifestage,
-  cd.day_num,
-  cd.calendar_date
-ORDER BY cd.cohort_type, cd.consumer_id, cd.day_num;
+SELECT
+  master_campaign_name,
+  notification_message_type,
+
+  is_abandon                           AS is_abandon_campaign,
+  is_nv,
+  is_fmx,
+  is_npws,
+  is_new,
+  is_challenge,
+  is_dashpass,
+  is_post_order,
+  is_reorder,
+  is_gift_card_campaign,
+  is_recommendation,
+  is_doordash_offer,
+  is_reminder,
+  is_store_offer,
+
+  COUNT(DISTINCT deduped_message_id) AS messages_sent
+
+FROM with_is_new
+GROUP BY
+  master_campaign_name,
+  notification_message_type,
+  is_abandon,
+  is_nv,
+  is_fmx,
+  is_npws,
+  is_new,
+  is_challenge,
+  is_dashpass,
+  is_post_order,
+  is_reorder,
+  is_gift_card_campaign,
+  is_recommendation,
+  is_doordash_offer,
+  is_reminder,
+  is_store_offer
+ORDER BY messages_sent DESC
+LIMIT 1000;
+select coalesce(campaign_name,canvas_name, bz_campaign_name) as master_campaign_name, notification_message_type
+
+, count(distinct deduped_message_id) messages_sent 
+from proddb.fionafan.all_user_notifications_with_braze 
+where 1=1
+and notification_channel = 'PUSH'
+-- and notification_source = 'Braze'
+and notification_message_type_overall != 'TRANSACTIONAL' and notification_message_type!='TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and is_valid_send = 1
+-- and cohort_type = 'post_onboarding'
+group by all order by messages_sent desc
+limit 1000;
 
 
--- Validation: Daily opt-in summary by cohort
-SELECT 
-  cohort_type,
-  day_num,
-  COUNT(DISTINCT consumer_id) as total_consumers,
-  SUM(is_push_opted_in) as consumers_opted_in,
-  ROUND(100.0 * SUM(is_push_opted_in) / COUNT(DISTINCT consumer_id), 2) as pct_opted_in,
-  SUM(is_marketing_opted_in) as consumers_marketing_opted_in,
-  ROUND(100.0 * SUM(is_marketing_opted_in) / COUNT(DISTINCT consumer_id), 2) as pct_marketing_opted_in
-FROM proddb.fionafan.all_user_push_optin_daily
-GROUP BY cohort_type, day_num
-ORDER BY cohort_type, day_num;
-
-
--- Daily opt-in trends: Show change over time
-SELECT 
-  cohort_type,
-  day_num,
-  SUM(is_push_opted_in) as opted_in_count,
-  SUM(is_push_opted_in) - LAG(SUM(is_push_opted_in)) OVER (PARTITION BY cohort_type ORDER BY day_num) as daily_change,
-  ROUND(100.0 * SUM(is_push_opted_in) / SUM(COUNT(DISTINCT consumer_id)) OVER (PARTITION BY cohort_type), 2) as pct_of_cohort_opted_in
-FROM proddb.fionafan.all_user_push_optin_daily
-GROUP BY cohort_type, day_num
-ORDER BY cohort_type, day_num;
-
+select notification_message_type, count(1)cnt, listagg(distinct template_name, ', ') within group (order by template_name) as template_names 
+from proddb.fionafan.all_user_notifications_with_braze where template_name is null 
+and notification_channel = 'PUSH'
+and notification_message_type_overall != 'TRANSACTIONAL' and notification_message_type!='TRANSACTIONAL'
+and coalesce(canvas_name, campaign_name) != '[Martech] FPN Silent Push'
+and is_valid_send = 1
+and notification_source = 'FPN Postal Service'
+group by all
+limit 10;

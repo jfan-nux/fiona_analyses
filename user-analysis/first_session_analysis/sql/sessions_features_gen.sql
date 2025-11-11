@@ -980,6 +980,7 @@ SELECT
   SUM(CASE WHEN attribution_had_any = 1 AND attribution_first_click_from_search = 1 THEN 1 ELSE 0 END) as sessions_first_click_from_search,
   ROUND(100.0 * SUM(CASE WHEN attribution_had_any = 1 AND attribution_first_click_from_search = 1 THEN 1 ELSE 0 END) / NULLIF(SUM(attribution_had_any), 0), 2) as pct_first_click_from_search_among_clickers
 FROM proddb.fionafan.all_user_sessions_with_events_features_gen
+
 GROUP BY cohort_type, session_type
 ORDER BY cohort_type, session_type;
 

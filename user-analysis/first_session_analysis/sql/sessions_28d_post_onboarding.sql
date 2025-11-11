@@ -509,6 +509,9 @@ FROM all_weeks w
 CROSS JOIN total_cohort c
 ORDER BY w.week_number;
 
+select * from proddb.fionafan.sessions_28d_post_onboarding where consumer_id = '1917314864';
+select * from proddb.fionafan.all_user_july_cohort where consumer_id = '1917314864';
+
 select count(distinct consumer_id) from proddb.fionafan.raw_web_sessions_data_v2;
 
 select count(1), count(distinct consumer_id) from markwu.raw_sessions_data;
