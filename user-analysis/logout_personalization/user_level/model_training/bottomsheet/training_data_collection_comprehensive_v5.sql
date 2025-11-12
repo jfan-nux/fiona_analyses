@@ -15,6 +15,8 @@ Raw Web Session Data with Browser Detection
 ====================================================================================
 */
 
+select platform, count(1) from proddb.fionafan.raw_web_sessions_data_comprehensive_v5 group by all;
+
 CREATE OR REPLACE  TABLE proddb.fionafan.raw_web_sessions_data_comprehensive_v5 AS (
 
 SELECT 
@@ -75,6 +77,14 @@ platform
     WHEN context_user_agent ILIKE '%Naver%' THEN 'Naver Whale'
     ELSE 'Other'
   END AS browser_name
+, CASE
+    WHEN context_user_agent ILIKE '%Android%' THEN 'Android'
+    WHEN context_user_agent ILIKE '%iPhone%' 
+      OR context_user_agent ILIKE '%iPad%' 
+      OR context_user_agent ILIKE '%iPod%' 
+      OR context_user_agent ILIKE '%iOS%' THEN 'iOS'
+    ELSE 'Other/Web'
+  END AS inferred_os
 FROM 
     (
     SELECT 
@@ -171,21 +181,216 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY dd_session_id, dd_device_id ORDER BY tim
 )
 ;
 
+
+CREATE OR REPLACE TABLE proddb.fionafan.raw_mobile_sessions_data AS (
+
+
+WITH base AS (
+  SELECT
+    platform,
+    dd_device_id,
+    /* fact_unique_visitors_full_pt does not contain a session id; keeping a placeholder for schema parity */
+    CAST(NULL AS VARCHAR) AS dd_session_id,
+    user_id AS consumer_id,
+    first_timestamp AS session_first_timestamp,
+    /* Map the first event to a simplified "page" label */
+    CASE
+      WHEN LOWER(first_event) LIKE '%store_page_load%' THEN 'Store'
+      WHEN LOWER(first_event) LIKE '%home%' THEN 'Home'
+      WHEN LOWER(first_event) LIKE '%store_content%' THEN 'Explore'
+      WHEN LOWER(first_event) LIKE '%business_menu%' THEN 'Business'
+      WHEN LOWER(first_event) LIKE '%product%' OR LOWER(first_event) LIKE '%item%' THEN 'Product'
+      ELSE 'Other'
+    END AS page,
+    /* UTM fields and referrer are not present in fact_unique_visitors_full_pt; preserve columns as NULLs */
+    CAST(NULL AS VARCHAR) AS utm_campaign,
+    CAST(NULL AS VARCHAR) AS utm_source,
+    CAST(NULL AS VARCHAR) AS utm_medium,
+    CAST(NULL AS VARCHAR) AS referrer,
+    /* Derive traffic_type primarily from CHANNEL / MEDIA_TYPE / SUBCHANNEL where available */
+    CASE
+      WHEN channel ILIKE '%Direct%' THEN 'Direct'
+      WHEN channel ILIKE '%Organic_Search%' THEN 'Organic Search'
+      WHEN channel ILIKE '%Paid_Social%' THEN 'Paid Social'
+      WHEN LOWER(subchannel) IN ('web_display', 'video') THEN 'Paid Media'
+      WHEN LOWER(media_type) IN ('semb', 'semu', 'semc', 'pla') THEN 'Paid Media'
+      WHEN LOWER(subchannel) = 'email' THEN 'Email'
+      WHEN LOWER(subchannel) LIKE '%enterprise%' OR LOWER(partner) = 'partner-link' THEN 'Partners'
+      WHEN LOWER(subchannel) = 'affiliate' THEN 'Affiliate'
+      ELSE COALESCE(channel, 'Other')
+    END AS traffic_type,
+    user_agent AS context_user_agent,
+    /* Browser detection from user agent */
+    CASE
+      -- In-App Social Media Browsers
+      WHEN user_agent ILIKE '%FBAV%' OR user_agent ILIKE '%FB_IAB%' THEN 'Facebook In-App'
+      WHEN user_agent ILIKE '%Instagram%' THEN 'Instagram In-App'
+      WHEN user_agent ILIKE '%TikTok%' THEN 'TikTok In-App'
+      WHEN user_agent ILIKE '%Twitter%' THEN 'Twitter In-App'
+      WHEN user_agent ILIKE '%Snapchat%' THEN 'Snapchat In-App'
+      WHEN user_agent ILIKE '%Pinterest%' THEN 'Pinterest In-App'
+      WHEN user_agent ILIKE '%LinkedIn%' THEN 'LinkedIn In-App'
+      -- Major Browsers
+      WHEN user_agent ILIKE '%OPR%' OR user_agent ILIKE '%Opera%' THEN 'Opera'
+      WHEN user_agent ILIKE '%Edg%' THEN 'Edge'
+      WHEN user_agent ILIKE '%Chrome%' AND user_agent NOT ILIKE '%Edg%' AND user_agent NOT ILIKE '%OPR%' THEN 'Chrome'
+      WHEN user_agent ILIKE '%CriOS%' THEN 'Chrome iOS'
+      WHEN user_agent ILIKE '%FxiOS%' THEN 'Firefox iOS'
+      WHEN user_agent ILIKE '%Firefox%' THEN 'Firefox'
+      WHEN user_agent ILIKE '%Safari%' AND user_agent NOT ILIKE '%Chrome%' AND user_agent NOT ILIKE '%CriOS%' THEN 'Safari'
+      WHEN user_agent ILIKE '%SamsungBrowser%' THEN 'Samsung Internet'
+      WHEN user_agent ILIKE '%UCBrowser%' THEN 'UC Browser'
+      WHEN user_agent ILIKE '%YaBrowser%' THEN 'Yandex'
+      WHEN user_agent ILIKE '%Brave%' THEN 'Brave'
+      WHEN user_agent ILIKE '%Vivaldi%' THEN 'Vivaldi'
+      WHEN user_agent ILIKE '%DuckDuckGo%' THEN 'DuckDuckGo'
+      WHEN user_agent ILIKE '%QQBrowser%' THEN 'QQ Browser'
+      WHEN user_agent ILIKE '%Maxthon%' THEN 'Maxthon'
+      WHEN user_agent ILIKE '%Sogou%' THEN 'Sogou'
+      WHEN user_agent ILIKE '%Puffin%' THEN 'Puffin'
+      WHEN user_agent ILIKE '%Naver%' THEN 'Naver Whale'
+      ELSE 'Other'
+    END AS browser_name,
+    event_date,
+    -- Visitor type flags
+    UNIQUE_VISITOR,
+    UNIQUE_STORE_CONTENT_PAGE_VISITOR,
+    UNIQUE_STORE_PAGE_VISITOR,
+    UNIQUE_ORDER_CART_PAGE_VISITOR,
+    UNIQUE_CHECKOUT_PAGE_VISITOR,
+    UNIQUE_PURCHASER,
+    UNIQUE_APP_INSTALLER,
+    UNIQUE_CORE_VISITOR,
+    HOME_PAGE_VISITOR,
+    MOBILE_SPLASH_PAGE_VISITOR,
+    MULTI_STORE_VISITOR
+  FROM proddb.public.fact_unique_visitors_full_pt
+
+  WHERE
+    /* Exclude bots using explicit flag and a light UA filter similar to the original */
+    COALESCE(is_bot, 0) = 0
+    AND user_agent NOT ILIKE '%prerender%'
+    AND user_agent NOT ILIKE '%read-aloud%'
+    /* Default date range: last 7 days */
+    AND event_date BETWEEN DATEADD(day, -180, DATE '2025-06-10') AND DATEADD(day, -1, DATE '2025-06-10')
+)
+SELECT *
+FROM base
+);
+
+/*
+====================================================================================
+Deep Link and Singular Events for Device-User Linking
+====================================================================================
+*/
+
+CREATE OR REPLACE TABLE proddb.fionafan.deep_link_singular_device_user_mapping AS
+
+WITH 
+-- Deep link events: extract all device IDs from a single scan
+deep_link_all_ids AS (
+  SELECT
+    CAST(IGUAZU_USER_ID AS VARCHAR) AS user_id,
+    IGUAZU_TIMESTAMP AS event_ts,
+    CONTEXT_DEVICE_ID AS context_device_id,
+    /* dd_device_id param is URL-encoded as dd_device_id%3D */
+    NULLIF(SPLIT_PART(SPLIT_PART(DEEP_LINK_URL, 'dd_device_id%3D', 2), '%', 1), '') AS device_id_from_dd_param,
+    /* web_consumer_id appears unencoded in some links */
+    NULLIF(SPLIT_PART(SPLIT_PART(DEEP_LINK_URL, 'web_consumer_id=', 2), '&', 1), '') AS device_id_from_web_param
+  FROM iguazu.server_events_production.m_deep_link
+  WHERE IGUAZU_TIMESTAMP::DATE BETWEEN $long_term_start_date AND $long_term_end_date
+),
+-- Unpivot to get one row per device_id per event (avoiding duplicates with UNION, not UNION ALL)
+deep_link_union AS (
+  SELECT DISTINCT device_id, user_id, event_ts
+  FROM (
+    SELECT context_device_id AS device_id, user_id, event_ts
+    FROM deep_link_all_ids
+    WHERE context_device_id IS NOT NULL AND context_device_id <> ''
+    UNION
+    SELECT device_id_from_dd_param AS device_id, user_id, event_ts
+    FROM deep_link_all_ids
+    WHERE device_id_from_dd_param IS NOT NULL AND device_id_from_dd_param <> ''
+    UNION
+    SELECT device_id_from_web_param AS device_id, user_id, event_ts
+    FROM deep_link_all_ids
+    WHERE device_id_from_web_param IS NOT NULL AND device_id_from_web_param <> ''
+  )
+),
+deep_link_final AS (
+  SELECT device_id, user_id, CAST(NULL AS VARCHAR) AS consumer_id, event_ts
+  FROM deep_link_union
+),
+-- 3) Singular mobile events: take DD_DEVICE_ID as device_id as-is; include consumer_id
+singular_raw AS (
+  SELECT
+    DD_DEVICE_ID AS device_id,
+    CAST(NULL AS VARCHAR) AS user_id,
+    CAST(CONSUMER_ID AS VARCHAR) AS consumer_id,
+    COALESCE(EVENT_TIMESTAMP, TO_TIMESTAMP_NTZ(EVENT_DATE)) AS event_ts
+  FROM edw.growth.fact_singular_mobile_events
+  WHERE EVENT_DATE BETWEEN $long_term_start_date AND $long_term_end_date
+    AND DD_DEVICE_ID IS NOT NULL 
+    AND DD_DEVICE_ID <> ''
+),
+combined AS (
+  SELECT 'deep_link' AS source, device_id, consumer_id, user_id, event_ts 
+  FROM deep_link_final
+  UNION ALL
+  SELECT 'singular' AS source, device_id, consumer_id, user_id, event_ts 
+  FROM singular_raw
+),
+rolled AS (
+  SELECT
+    source,
+    device_id,
+    consumer_id,
+    user_id,
+    MIN(event_ts) AS first_seen_at,
+    MAX(event_ts) AS last_seen_at,
+    COUNT(*) AS event_count
+  FROM combined
+  WHERE device_id IS NOT NULL AND device_id <> ''
+  GROUP BY 1,2,3,4
+)
+SELECT
+  source,
+  device_id,
+  consumer_id,
+  user_id,
+  first_seen_at,
+  last_seen_at,
+  event_count
+FROM rolled;
+
 /*
 ====================================================================================
 Fortified Web Visitor Data
 ====================================================================================
 */
 
-CREATE OR REPLACE  TABLE proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 AS (
-WITH device_id AS (
-SELECT 
+select platform, count(1), count(distinct dd_device_id), count(distinct consumer_id) 
+from proddb.fionafan.raw_web_sessions_data_comprehensive_v5 group by all;
+select count(1) from (
+    select
 dd_device_id 
 , platform 
-, MAX(consumer_id) AS consumer_id_logged_in_status 
+, MAX(consumer_id) AS consumer_id 
 FROM proddb.fionafan.raw_web_sessions_data_comprehensive_v5
 GROUP BY 1,2 
-)
+);
+CREATE OR REPLACE  TABLE proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 AS (
+
+WITH device_id AS (
+
+select dd_device_id 
+, platform 
+, MAX(consumer_id) AS consumer_id_logged_in_status 
+, max(case when inferred_os = 'Android' then 1 else 0 end) as is_android
+, max(case when inferred_os = 'iOS' then 1 else 0 end) as is_ios
+, max(case when inferred_os = 'Other/Web' then 1 else 0 end) as is_web
+FROM proddb.fionafan.raw_web_sessions_data_comprehensive_v5
+group by 1,2)
 , joined AS (
 SELECT 
 a.dd_device_id 
@@ -208,54 +413,174 @@ LEFT JOIN edw.consumer.dimension_consumers dc
 )
 SELECT 
 dd_device_id 
-, platform 
+, platform,
+, is_android
+, is_ios
+, is_web
 , CASE WHEN consumer_id_logged_in_status IS NOT NULL THEN consumer_id_logged_in_status ELSE consumer_id_checked_in_log_in_records END AS consumer_id 
 , CASE WHEN consumer_id IS NOT NULL THEN True ELSE False END AS has_associated_consumer_id 
 FROM joined 
 )
 ;
 
+select avg(has_associated_consumer_id::integer) from proddb.fionafan.fortified_web_visitor_data_comprehensive_v5;
+select platform, count(distinct dd_device_id) from proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 group by all;
 /*
 ====================================================================================
 Web Session Data - Recent 28 and 90 Days
 ====================================================================================
 */
 
+/*
+====================================================================================
+Mobile Visitor Metrics - Separate Table (runs in parallel)
+====================================================================================
+*/
+CREATE OR REPLACE TABLE proddb.fionafan.mobile_visitor_metrics_comprehensive_v5 AS
+SELECT 
+    dd_device_id,
+    -- 28 day flags
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_STORE_CONTENT_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_store_content_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_STORE_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_store_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_ORDER_CART_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_order_cart_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_CHECKOUT_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_checkout_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_PURCHASER = 1 THEN True ELSE False END) AS device_id_unique_purchaser_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_APP_INSTALLER = 1 THEN True ELSE False END) AS device_id_unique_app_installer_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND UNIQUE_CORE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_core_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND HOME_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_home_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND MOBILE_SPLASH_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_mobile_splash_page_visitor_recent_28_days,
+    MAX(CASE WHEN event_date BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND MULTI_STORE_VISITOR = 1 THEN True ELSE False END) AS device_id_multi_store_visitor_recent_28_days,
+    -- 90 day flags
+    MAX(CASE WHEN UNIQUE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_visitor_recent_90_days,
+    MAX(CASE WHEN UNIQUE_STORE_CONTENT_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_store_content_page_visitor_recent_90_days,
+    MAX(CASE WHEN UNIQUE_STORE_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_store_page_visitor_recent_90_days,
+    MAX(CASE WHEN UNIQUE_ORDER_CART_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_order_cart_page_visitor_recent_90_days,
+    MAX(CASE WHEN UNIQUE_CHECKOUT_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_checkout_page_visitor_recent_90_days,
+    MAX(CASE WHEN UNIQUE_PURCHASER = 1 THEN True ELSE False END) AS device_id_unique_purchaser_recent_90_days,
+    MAX(CASE WHEN UNIQUE_APP_INSTALLER = 1 THEN True ELSE False END) AS device_id_unique_app_installer_recent_90_days,
+    MAX(CASE WHEN UNIQUE_CORE_VISITOR = 1 THEN True ELSE False END) AS device_id_unique_core_visitor_recent_90_days,
+    MAX(CASE WHEN HOME_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_home_page_visitor_recent_90_days,
+    MAX(CASE WHEN MOBILE_SPLASH_PAGE_VISITOR = 1 THEN True ELSE False END) AS device_id_mobile_splash_page_visitor_recent_90_days,
+    MAX(CASE WHEN MULTI_STORE_VISITOR = 1 THEN True ELSE False END) AS device_id_multi_store_visitor_recent_90_days
+FROM proddb.fionafan.raw_mobile_sessions_data
+WHERE event_date BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date
+GROUP BY dd_device_id
+;
+
+/*
+====================================================================================
+Table 1: Web Session & Login Metrics (Fast - lighter tables)
+====================================================================================
+*/
+CREATE OR REPLACE TABLE proddb.fionafan.web_session_login_metrics_comprehensive_v5 AS
+
+SELECT 
+    a.dd_device_id,
+    -- 28 day metrics
+    MAX(CASE WHEN ws.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date THEN True ELSE False END) AS device_id_is_active_recent_28_days,
+    COUNT(DISTINCT CASE WHEN ws.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date THEN ws.dd_session_id END) AS device_id_sessions_recent_28_days,
+    MAX(CASE WHEN l.ts::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date THEN True ELSE False END) AS device_id_has_logged_in_recent_28_days,
+    -- 90 day metrics
+    MAX(CASE WHEN ws.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_is_active_recent_90_days,
+    COUNT(DISTINCT ws.dd_session_id) AS device_id_sessions_recent_90_days,
+    MAX(CASE WHEN l.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_has_logged_in_recent_90_days
+FROM proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 a
+LEFT JOIN proddb.fionafan.raw_web_sessions_data_comprehensive_v5 ws 
+    ON a.dd_device_id = ws.dd_device_id
+    AND ws.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date
+LEFT JOIN proddb.public.fact_consumer_frontend_login_and_signup_events l
+    ON a.dd_device_id = l.dd_device_id
+    AND l.ts::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date
+GROUP BY a.dd_device_id
+;
+
+/*
+====================================================================================
+Table 2: Order & Address Metrics (Slower - heavier tables)
+====================================================================================
+*/
+CREATE OR REPLACE TABLE proddb.fionafan.order_address_metrics_comprehensive_v5 AS
+SELECT 
+    a.dd_device_id,
+    -- 28 day metrics
+    COUNT(DISTINCT CASE WHEN dd.created_at::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date THEN dd.delivery_id END) AS device_id_orders_recent_28_days,
+    MAX(CASE WHEN addr.iguazu_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND addr.is_guest = True THEN True ELSE False END) AS device_id_has_logged_out_address_entry_recent_28_days,
+    MAX(CASE WHEN addr.iguazu_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND addr.is_guest = False THEN True ELSE False END) AS device_id_has_logged_in_address_entry_recent_28_days,
+    -- 90 day metrics
+    COUNT(DISTINCT dd.delivery_id) AS device_id_orders_recent_90_days,
+    MAX(CASE WHEN addr.is_guest = True THEN True ELSE False END) AS device_id_has_logged_out_address_entry_recent_90_days,
+    MAX(CASE WHEN addr.is_guest = False THEN True ELSE False END) AS device_id_has_logged_in_address_entry_recent_90_days
+FROM proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 a
+LEFT JOIN edw.finance.dimension_deliveries dd
+    ON dd.is_caviar != 1
+        AND dd.is_filtered_core = 1
+        AND dd.dd_device_id = a.dd_device_id
+        AND dd.created_at::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date
+LEFT JOIN iguazu.server_events_production.debug_address_create addr
+    ON addr.dd_device_id = a.dd_device_id
+        AND addr.iguazu_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date
+GROUP BY a.dd_device_id
+;
+
+/*
+====================================================================================
+Final Combined Table - Joins all pre-aggregated metrics
+====================================================================================
+*/
 CREATE OR REPLACE  TABLE proddb.fionafan.raw_unique_web_device_id_add_recent_28_days_web_info_comprehensive_v5 AS 
 SELECT 
-a.* 
-, MAX(CASE WHEN b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND b.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_is_active_recent_28_days 
-, COUNT(DISTINCT CASE WHEN b.dd_device_id IS NULL THEN NULL ELSE IFNULL(b.dd_session_id, 'Null') END) AS device_id_sessions_recent_28_days 
-, COUNT(DISTINCT CASE WHEN b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date THEN dd.delivery_id ELSE NULL END) AS device_id_orders_recent_28_days 
-, MAX(CASE WHEN b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND c.dd_device_id IS NOT NULL AND c.is_guest = True THEN True ELSE False END) AS device_id_has_logged_out_address_entry_recent_28_days 
-, MAX(CASE WHEN b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND c.dd_device_id IS NOT NULL AND c.is_guest = False THEN True ELSE False END) AS device_id_has_logged_in_address_entry_recent_28_days 
-, MAX(CASE WHEN b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '27 DAYS' AND $long_term_end_date AND e.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_has_logged_in_recent_28_days 
-, MAX(CASE WHEN b.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_is_active_recent_90_days 
-, COUNT(DISTINCT CASE WHEN b.dd_device_id IS NULL THEN NULL ELSE IFNULL(b.dd_session_id, 'Null') END) AS device_id_sessions_recent_90_days 
-, COUNT(DISTINCT dd.delivery_id) AS device_id_orders_recent_90_days 
-, MAX(CASE WHEN c.dd_device_id IS NOT NULL AND c.is_guest = True THEN True ELSE False END) AS device_id_has_logged_out_address_entry_recent_90_days 
-, MAX(CASE WHEN c.dd_device_id IS NOT NULL AND c.is_guest = False THEN True ELSE False END) AS device_id_has_logged_in_address_entry_recent_90_days 
-, MAX(CASE WHEN e.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_has_logged_in_recent_90_days 
-FROM proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 a 
-LEFT JOIN proddb.fionafan.raw_web_sessions_data_comprehensive_v5 b 
-    ON a.dd_device_id = b.dd_device_id 
-    AND b.session_first_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date 
-LEFT JOIN edw.finance.dimension_deliveries dd 
-    ON dd.is_caviar != 1 
-    AND dd.is_filtered_core = 1 
-    AND dd.dd_device_id = a.dd_device_id 
-    AND dd.created_at::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date 
-    AND b.dd_device_id IS NOT NULL 
-LEFT JOIN iguazu.server_events_production.debug_address_create c 
-    ON c.is_guest = True 
-    AND c.dd_device_id = a.dd_device_id 
-    AND c.iguazu_timestamp::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date 
-    AND b.dd_device_id IS NOT NULL 
-LEFT JOIN proddb.public.fact_consumer_frontend_login_and_signup_events e 
-    ON e.dd_device_id = a.dd_device_id 
-    AND e.ts::DATE BETWEEN $long_term_end_date - INTERVAL '90 DAYS' AND $long_term_end_date 
-GROUP BY 1,2,3,4
+    a.dd_device_id,
+    a.platform,
+    a.consumer_id,
+    a.has_associated_consumer_id,
+    a.is_android,
+    a.is_ios,
+    a.is_web,
+    -- Web session & login metrics
+    MAX(COALESCE(ws.device_id_is_active_recent_28_days, False)) AS device_id_is_active_recent_28_days,
+    MAX(COALESCE(ws.device_id_sessions_recent_28_days, 0)) AS device_id_sessions_recent_28_days,
+    MAX(COALESCE(ws.device_id_has_logged_in_recent_28_days, False)) AS device_id_has_logged_in_recent_28_days,
+    MAX(COALESCE(ws.device_id_is_active_recent_90_days, False)) AS device_id_is_active_recent_90_days,
+    MAX(COALESCE(ws.device_id_sessions_recent_90_days, 0)) AS device_id_sessions_recent_90_days,
+    MAX(COALESCE(ws.device_id_has_logged_in_recent_90_days, False)) AS device_id_has_logged_in_recent_90_days,
+    -- Order & address metrics
+    MAX(COALESCE(oa.device_id_orders_recent_28_days, 0)) AS device_id_orders_recent_28_days,
+    MAX(COALESCE(oa.device_id_has_logged_out_address_entry_recent_28_days, False)) AS device_id_has_logged_out_address_entry_recent_28_days,
+    MAX(COALESCE(oa.device_id_has_logged_in_address_entry_recent_28_days, False)) AS device_id_has_logged_in_address_entry_recent_28_days,
+    MAX(COALESCE(oa.device_id_orders_recent_90_days, 0)) AS device_id_orders_recent_90_days,
+    MAX(COALESCE(oa.device_id_has_logged_out_address_entry_recent_90_days, False)) AS device_id_has_logged_out_address_entry_recent_90_days,
+    MAX(COALESCE(oa.device_id_has_logged_in_address_entry_recent_90_days, False)) AS device_id_has_logged_in_address_entry_recent_90_days,
+    -- Mobile visitor flags
+    MAX(COALESCE(m.device_id_unique_visitor_recent_28_days, False)) AS device_id_unique_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_store_content_page_visitor_recent_28_days, False)) AS device_id_unique_store_content_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_store_page_visitor_recent_28_days, False)) AS device_id_unique_store_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_order_cart_page_visitor_recent_28_days, False)) AS device_id_unique_order_cart_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_checkout_page_visitor_recent_28_days, False)) AS device_id_unique_checkout_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_purchaser_recent_28_days, False)) AS device_id_unique_purchaser_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_app_installer_recent_28_days, False)) AS device_id_unique_app_installer_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_core_visitor_recent_28_days, False)) AS device_id_unique_core_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_home_page_visitor_recent_28_days, False)) AS device_id_home_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_mobile_splash_page_visitor_recent_28_days, False)) AS device_id_mobile_splash_page_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_multi_store_visitor_recent_28_days, False)) AS device_id_multi_store_visitor_recent_28_days,
+    MAX(COALESCE(m.device_id_unique_visitor_recent_90_days, False)) AS device_id_unique_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_store_content_page_visitor_recent_90_days, False)) AS device_id_unique_store_content_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_store_page_visitor_recent_90_days, False)) AS device_id_unique_store_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_order_cart_page_visitor_recent_90_days, False)) AS device_id_unique_order_cart_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_checkout_page_visitor_recent_90_days, False)) AS device_id_unique_checkout_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_purchaser_recent_90_days, False)) AS device_id_unique_purchaser_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_app_installer_recent_90_days, False)) AS device_id_unique_app_installer_recent_90_days,
+    MAX(COALESCE(m.device_id_unique_core_visitor_recent_90_days, False)) AS device_id_unique_core_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_home_page_visitor_recent_90_days, False)) AS device_id_home_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_mobile_splash_page_visitor_recent_90_days, False)) AS device_id_mobile_splash_page_visitor_recent_90_days,
+    MAX(COALESCE(m.device_id_multi_store_visitor_recent_90_days, False)) AS device_id_multi_store_visitor_recent_90_days
+FROM proddb.fionafan.fortified_web_visitor_data_comprehensive_v5 a
+LEFT JOIN proddb.fionafan.web_session_login_metrics_comprehensive_v5 ws ON a.dd_device_id = ws.dd_device_id
+LEFT JOIN proddb.fionafan.order_address_metrics_comprehensive_v5 oa ON a.dd_device_id = oa.dd_device_id
+LEFT JOIN proddb.fionafan.mobile_visitor_metrics_comprehensive_v5 m ON a.dd_device_id = m.dd_device_id
+GROUP BY a.dd_device_id, a.platform, a.consumer_id, a.has_associated_consumer_id, a.is_android, a.is_ios, a.is_web
 ;
+select count(1) from proddb.fionafan.raw_unique_web_device_id_add_recent_28_days_web_info_comprehensive_v5;
 
 /*
 ====================================================================================
@@ -264,6 +589,7 @@ Web Session Data - Most Recent Session
 */
 
 CREATE OR REPLACE  TABLE proddb.fionafan.raw_unique_web_device_id_add_recent_session_web_info_comprehensive_v5 AS 
+
 WITH most_recent_sessions AS (
 SELECT 
 * 
@@ -281,6 +607,11 @@ a.*
 , MAX(CASE WHEN c.dd_device_id IS NOT NULL AND c.is_guest = True THEN True ELSE False END) AS device_id_has_logged_out_address_entry_most_recent_session  
 , MAX(CASE WHEN c.dd_device_id IS NOT NULL AND c.is_guest = False THEN True ELSE False END) AS device_id_has_logged_in_address_entry_most_recent_session 
 , MAX(CASE WHEN e.dd_device_id IS NOT NULL THEN True ELSE False END) AS device_id_has_logged_in_recent_most_recent_session  
+-- Deep link and Singular events aggregations
+, SUM(CASE WHEN dl.source = 'deep_link' THEN dl.event_count ELSE 0 END) AS device_id_deep_link_event_count_total
+, SUM(CASE WHEN dl.source = 'singular' THEN dl.event_count ELSE 0 END) AS device_id_singular_event_count_total
+, MIN(CASE WHEN dl.source = 'deep_link' THEN DATEDIFF('DAYS', dl.last_seen_at, $observed_experiment_start_date - INTERVAL '1 DAY') END) AS device_id_deep_link_recency_days
+, MIN(CASE WHEN dl.source = 'singular' THEN DATEDIFF('DAYS', dl.last_seen_at, $observed_experiment_start_date - INTERVAL '1 DAY') END) AS device_id_singular_recency_days
 FROM proddb.fionafan.raw_unique_web_device_id_add_recent_28_days_web_info_comprehensive_v5 a 
 LEFT JOIN most_recent_sessions b 
     ON a.dd_device_id = b.dd_device_id 
@@ -298,7 +629,10 @@ LEFT JOIN proddb.public.fact_consumer_frontend_login_and_signup_events e
     ON e.dd_device_id = a.dd_device_id 
     AND e.ts::DATE BETWEEN b.session_first_timestamp AND b.session_first_timestamp + INTERVAL '24 HOURS' 
     AND b.dd_device_id IS NOT NULL 
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20
+LEFT JOIN proddb.fionafan.deep_link_singular_device_user_mapping dl
+    ON replace(lower(CASE WHEN dl.device_id LIKE 'dx_%' THEN dl.device_id ELSE 'dx_'||dl.device_id END), '-') = 
+       replace(lower(CASE WHEN a.dd_device_id LIKE 'dx_%' THEN a.dd_device_id ELSE 'dx_'||a.dd_device_id END), '-')
+GROUP BY all
 ;
 
 /*
@@ -308,6 +642,7 @@ Historical Features with Consumer-Level Metrics and CX360 Attributes
 */
 
 CREATE OR REPLACE  TABLE proddb.fionafan.logged_out_personalization_historical_web_device_id_comprehensive_v5 AS 
+
 WITH recent_behavior AS (
 SELECT 
 a.* 
@@ -326,7 +661,7 @@ LEFT JOIN edw.finance.dimension_deliveries dd
     AND dd.is_filtered_core = 1 
     AND dd.creator_id::VARCHAR = a.consumer_id::VARCHAR 
     AND dd.created_at::DATE BETWEEN $long_term_start_date AND $long_term_end_date 
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25
+GROUP BY all
 )
 
 SELECT 
@@ -363,6 +698,7 @@ a.*
 , b.nv_orders_count_lifetime AS cx360_nv_orders_count_lifetime 
 FROM recent_behavior a 
 LEFT JOIN edw.growth.cx360_model_snapshot_dlcopy b 
+
     ON a.consumer_id = b.consumer_id 
     AND a.consumer_id IS NOT NULL 
     AND b.snapshot_date::DATE = DATE_TRUNC('WEEK', $long_term_end_date)::DATE - 1
@@ -460,8 +796,21 @@ bucket_key AS dd_device_id
 , NULLIF(custom_attributes:context:campaign:name::VARCHAR, '') AS utm_campaign 
 , NULLIF(custom_attributes:context:campaign:source::VARCHAR, '') AS utm_source 
 , NULLIF(custom_attributes:context:campaign:medium::VARCHAR, '') AS utm_medium 
+, NULLIF(custom_attributes:isGuest::BOOLEAN, FALSE) AS is_guest 
 , exposure_time AS first_exposure_time 
-, CASE WHEN timezone IS NOT NULL THEN CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', exposure_time) ELSE NULL END AS first_exposure_time_local 
+, CASE 
+        WHEN timezone IS NOT NULL 
+        AND timezone NOT ILIKE 'Etc/Unknown' 
+        AND timezone NOT ILIKE 'Etc/%'
+        AND timezone NOT LIKE '+%'
+        AND timezone NOT LIKE '-%'
+        AND timezone NOT IN ('GMT', 'UTC')
+        AND timezone LIKE '%/%'  -- Valid timezones have format 'Region/City'
+        AND timezone <> '' 
+        AND LEN(timezone) > 3
+        THEN CONVERT_TIMEZONE('UTC', timezone, exposure_time)
+        ELSE CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', exposure_time)
+      END AS first_exposure_time_local 
 FROM proddb.public.fact_dedup_experiment_exposure 
 WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
     AND experiment_version = 2 
@@ -476,7 +825,7 @@ a.dd_device_id
 , CASE 
      WHEN referrer LIKE '%doordash.%' THEN 'Direct'
      WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND NULLIF(referrer, '') IS NULL THEN 'Direct'
-     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND (NULLIF(referrer, '') LIKE '%google.%' OR NULLIF(referrer, '') LIKE '%bing.%' OR NULLIF(referrer, '') LIKE '%search.yahoo.%') THEN 'Organic Search'
+     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND (NULLIF(referrer, '') LIKE '%google.%' OR NULLIF(referrer, '') LIKE '%bing.%' OR NULLIF(referrer, '') LIKE '%search.yahoo.%') OR NULLIF(referrer, '') LIKE '%duckduckgo.%' THEN 'Organic Search'
      WHEN NULLIF(utm_campaign, '') = 'gpa' THEN 'Organic Search'
      WHEN NULLIF(utm_medium, '') = 'Paid_Social' THEN 'Paid Media'
      WHEN NULLIF(utm_medium, '') = 'SEMb' THEN 'Paid Media'
@@ -488,13 +837,18 @@ a.dd_device_id
      WHEN LOWER(NULLIF(utm_medium, '')) IN ('affiliate') THEN 'Affiliate' 
      WHEN LOWER(NULLIF(utm_medium, '')) IN ('web_display') THEN 'Paid Media'
      WHEN LOWER(NULLIF(utm_medium, '')) IN ('video') THEN 'Paid Media'
-     ELSE 'Other' END AS device_id_general_traffic_type_real_time 
+     WHEN utm_campaign is not null or lower(utm_medium) = 'paid' THEN 'Paid Media'
+     when lower(referrer) like '%facebook.%' or lower(referrer) like '%tiktok.%' or lower(referrer) like '%instagram.%' THEN 'Paid Media'
+     when utm_source ilike 'mx_share%' then 'Mx Share'
+     when referrer is not null then 'Mx Share'
+     ELSE 'Other' END AS device_id_general_traffic_type_real_time
 , CASE WHEN device_id_general_traffic_type_real_time = 'Direct' THEN True ELSE False END AS device_id_channel_is_direct_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Organic Search' THEN True ELSE False END AS device_id_channel_is_organic_search_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Paid Media' THEN True ELSE False END AS device_id_channel_is_paid_media_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Email' THEN True ELSE False END AS device_id_channel_is_email_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Partners' THEN True ELSE False END AS device_id_channel_is_partners_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Affiliate' THEN True ELSE False END AS device_id_channel_is_affiliate_real_time 
+, CASE WHEN device_id_general_traffic_type_real_time = 'Mx Share' THEN True ELSE False END AS device_id_channel_is_mx_share_real_time 
 , CASE WHEN HOUR(first_exposure_time_local) BETWEEN 0 AND 3 THEN True ELSE False END AS device_id_first_exposure_time_is_0_to_3_real_time
 , CASE WHEN HOUR(first_exposure_time_local) BETWEEN 4 AND 7 THEN True ELSE False END AS device_id_first_exposure_time_is_4_to_7_real_time
 , CASE WHEN HOUR(first_exposure_time_local) BETWEEN 8 AND 11 THEN True ELSE False END AS device_id_first_exposure_time_is_8_to_11_real_time
@@ -510,9 +864,203 @@ LEFT JOIN consolidated dd
     AND dd.event_ts::DATE = a.first_exposure_time::DATE 
     AND dd.event_ts > a.first_exposure_time 
 WHERE a.first_exposure_time::DATE = $observed_experiment_start_date 
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17 
+GROUP BY all
 ;
 
+select tag, custom_attributes:context:page:referrer,custom_attributes:context:campaign:medium,count(1) cnt from proddb.public.fact_dedup_experiment_exposure 
+WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
+    AND experiment_version = 2 
+    AND exposure_time::DATE >= '2025-06-10'::DATE
+    AND exposure_time::DATE <= '2025-06-17'::DATE group by all order by cnt desc limit 10000;
+
+with exposures AS (
+SELECT 
+bucket_key AS dd_device_id 
+, tag 
+, NULLIF(custom_attributes:context:timezone::VARCHAR, '') AS timezone 
+, NULLIF(custom_attributes:context:page:referrer::VARCHAR, '') AS referrer 
+, NULLIF(custom_attributes:context:campaign:name::VARCHAR, '') AS utm_campaign 
+, NULLIF(custom_attributes:context:campaign:source::VARCHAR, '') AS utm_source 
+, NULLIF(custom_attributes:context:campaign:medium::VARCHAR, '') AS utm_medium 
+, NULLIF(custom_attributes:isGuest::BOOLEAN, FALSE) AS is_guest 
+, exposure_time AS first_exposure_time 
+, CASE 
+        WHEN timezone IS NOT NULL 
+        AND timezone NOT ILIKE 'Etc/Unknown' 
+        AND timezone NOT ILIKE 'Etc/%'
+        AND timezone NOT LIKE '+%'
+        AND timezone NOT LIKE '-%'
+        AND timezone NOT IN ('GMT', 'UTC')
+        AND timezone LIKE '%/%'  -- Valid timezones have format 'Region/City'
+        AND timezone <> '' 
+        AND LEN(timezone) > 3
+        THEN CONVERT_TIMEZONE('UTC', timezone, exposure_time)
+        ELSE CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', exposure_time)
+      END AS first_exposure_time_local 
+FROM proddb.public.fact_dedup_experiment_exposure 
+WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
+    AND experiment_version = 2 
+    AND exposure_time::DATE >= '2025-06-10'::DATE
+    AND exposure_time::DATE <= '2025-06-17'::DATE
+QUALIFY ROW_NUMBER() OVER (PARTITION BY dd_device_id ORDER BY exposure_time ASC) = 1 
+)
+select CASE 
+     WHEN referrer LIKE '%doordash.%' THEN 'Direct'
+     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND NULLIF(referrer, '') IS NULL THEN 'Direct'
+     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND (NULLIF(referrer, '') LIKE '%google.%' OR NULLIF(referrer, '') LIKE '%bing.%' OR NULLIF(referrer, '') LIKE '%search.yahoo.%') OR NULLIF(referrer, '') LIKE '%duckduckgo.%' THEN 'Organic Search'
+     WHEN NULLIF(utm_campaign, '') = 'gpa' THEN 'Organic Search'
+     WHEN NULLIF(utm_medium, '') = 'Paid_Social' THEN 'Paid Media'
+     WHEN NULLIF(utm_medium, '') = 'SEMb' THEN 'Paid Media'
+     WHEN NULLIF(utm_medium, '') = 'SEMu' THEN 'Paid Media'
+     WHEN NULLIF(utm_medium, '') = 'SEMc' THEN 'Paid Media'
+     WHEN NULLIF(utm_medium, '') = 'PLA' THEN 'Paid Media'
+     WHEN LOWER(NULLIF(utm_medium, '')) = 'email' THEN 'Email'
+     WHEN LOWER(NULLIF(utm_medium, '')) LIKE '%enterprise%' OR LOWER(NULLIF(utm_source, '')) IN ('partner-link') THEN 'Partners'
+     WHEN LOWER(NULLIF(utm_medium, '')) IN ('affiliate') THEN 'Affiliate' 
+     WHEN LOWER(NULLIF(utm_medium, '')) IN ('web_display') THEN 'Paid Media'
+     WHEN LOWER(NULLIF(utm_medium, '')) IN ('video') THEN 'Paid Media'
+     WHEN utm_campaign is not null or lower(utm_medium) = 'paid' THEN 'Paid Media'
+     when lower(referrer) like '%facebook.%' or lower(referrer) like '%tiktok.%' or lower(referrer) like '%instagram.%' THEN 'Paid Media'
+     when utm_source ilike 'mx_share%' then 'Mx Share'
+     when referrer is not null then 'Mx Share'
+     ELSE 'Other' END AS device_id_general_traffic_type_real_time
+     ,referrer,utm_medium,utm_source,utm_campaign, count(1) cnt 
+     from exposures 
+     where device_id_general_traffic_type_real_time = 'Other'
+     group by all order by cnt desc limit 10000;
+
+    {
+  "anonymousId": "dx_27bb581b08614e9a970baf7858084511",
+  "app_version": "2.8119.3",
+  "application": "consumer-web-next",
+  "cell_name": "cell-002",
+  "consumerId": "146487221",
+  "consumer_id": "146487221",
+  "context": {
+    "app": {
+      "build": "2228dc2761c1267bf5f6835a8b7803cc08873276",
+      "name": "@doordash/app-consumer-ssr",
+      "namespace": "",
+      "version": "2.8119.3"
+    },
+    "campaign": {},
+    "device": {
+      "type": "Web"
+    },
+    "ip": "2601:242:600:ae90:f134:7974:717a:fd38",
+    "library": {
+      "name": "telemetry-js",
+      "version": ""
+    },
+    "locale": "en-US",
+    "os": {
+      "name": "web"
+    },
+    "page": {
+      "path": "/store/cold-stone-creamery-decatur-29200542/36486348/",
+      "referrer": "https://www.doordash.com/home",
+      "search": "?event_type=autocomplete&pickup=false",
+      "title": "Cold Stone Creamery (3727 N Woodford St) - Decatur, IL Menu Delivery [Menu & Prices] | Decatur - DoorDash",
+      "url": "https://www.doordash.com/store/cold-stone-creamery-decatur-29200542/36486348/?event_type=autocomplete&pickup=false"
+    },
+    "screen": {
+      "density": 1.75,
+      "height": 840,
+      "width": 411
+    },
+    "timezone": "America/Chicago",
+    "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
+  },
+  "country": "US",
+  "defaultCountry": "United States",
+  "deviceId": "dx_27bb581b08614e9a970baf7858084511",
+  "device_id": "dx_27bb581b08614e9a970baf7858084511",
+  "distribution": "Equal Weights",
+  "dv_name": "app_download_bottomsheet_store_page_v2",
+  "dv_type": "experiment",
+  "entityId": "d1c09383-68d3-4288-b1a5-07a5b8fc47be",
+  "environment": "prod",
+  "evaluation_id": "5c8cb02d-be19-3253-7eb1-8607195aac44",
+  "evaluation_time": 1749865732,
+  "experience": "doordash",
+  "hostname": "consumer-web-next-ssr-5fcf5b949-k5knf",
+  "in_segment_rollout": true,
+  "isGuest": "",
+  "is_employee": "",
+  "is_platform_web": true,
+  "library_version": "5.2.2",
+  "messageId": "285cce56-2180-46c9-ae43-8c50efa91adc",
+  "originalTimestamp": 1749865742683,
+  "os": "web",
+  "platform": "mobile",
+  "random_uuid": "1d9cbcc0-f265-a2e6-7ee1-dca4604fbd37",
+  "receivedAt": 1749865749644,
+  "revision_version": 17,
+  "sentAt": 1749865751203,
+  "service_name": "dynamic-values-service",
+  "sub_environment": "UNSET_SUB_ENVIRONMENT",
+  "submarketId": "84",
+  "teamId": "",
+  "timestamp": 1749865741124,
+  "touch": true,
+  "userId": "146487221",
+  "user_id": "146926749",
+  "variant_MN_fairness_and_transparency": "control",
+  "variant_affordable_meal_fees_2024q4_experiment": "control",
+  "variant_affordable_meals_miami_test": "control",
+  "variant_bundle_pre_checkout_total_fee_tally_root": "control",
+  "variant_core_cx_discovery_holdout_2025H1": "sandbox",
+  "variant_core_cx_search_holdout_2024H2": "sandbox",
+  "variant_core_cx_search_holdout_2025H1": "sandbox",
+  "variant_cx_doubledash_promotions_m1": "control",
+  "variant_cx_gifting_root": "sandbox",
+  "variant_cx_homepage_discovery_web_realtime_v3": "control",
+  "variant_cx_scheduled_root": "sandbox",
+  "variant_ddfbLoqAutocheckoutCreator": "treatment",
+  "variant_ddfbLoqAutocheckoutCreatorV2": "treatment",
+  "variant_ddfbLoqAutocheckoutCreatorV2Parent": "treatment",
+  "variant_enable_bc_regulatory_response_fee": "control",
+  "variant_enable_leaderboard": "treatment1",
+  "variant_enable_leaderboard_android": "control",
+  "variant_enable_notification_hub_social_proof": "treatment",
+  "variant_enable_pco_loyalty_integration": "control",
+  "variant_enable_profile_photo_for_cx": "treatment",
+  "variant_enable_publish_cancellation_concierge_ui_event": "treatment",
+  "variant_enable_realtime_taste_carousel": "treatment_1",
+  "variant_enable_time_based_pill_filter": "control",
+  "variant_enable_time_based_pill_filter_on_search": "control",
+  "variant_evaluate_delivery_timeliness_for_eta_transparency": "control",
+  "variant_growth_consumer_based_universal_holdout_2023Q4": "sandbox",
+  "variant_growth_consumer_based_universal_holdout_2024Q2": "sandbox",
+  "variant_growth_device_based_universal_holdout_2022h2": "not_holdout",
+  "variant_growth_notifications_hub_consumer_based_holdout_q2_2024": "sandbox",
+  "variant_growth_notifications_hub_holdout_q4_2023": "sandbox",
+  "variant_growth_nux_general_universal_holdout_q3": "treatment",
+  "variant_is_client_id_null": "client_id_is_null",
+  "variant_is_client_id_null_core_cx": "client_id_is_null",
+  "variant_mx_average_rating_improvements": "control",
+  "variant_mx_average_rating_improvements_blacklist_1": "control",
+  "variant_mx_average_rating_improvements_blacklist_10": "control",
+  "variant_mx_average_rating_improvements_blacklist_11": "control",
+  "variant_mx_average_rating_improvements_blacklist_2": "control",
+  "variant_mx_average_rating_improvements_blacklist_3": "control",
+  "variant_mx_average_rating_improvements_blacklist_4": "control",
+  "variant_mx_average_rating_improvements_blacklist_5": "control",
+  "variant_mx_average_rating_improvements_blacklist_6": "control",
+  "variant_mx_average_rating_improvements_blacklist_7": "control",
+  "variant_mx_average_rating_improvements_blacklist_8": "control",
+  "variant_mx_average_rating_improvements_blacklist_9": "control",
+  "variant_nv_basket_building_global_holdout_h1_2025": "sandbox",
+  "variant_nv_cx_affordability_deals_pricing_perception_holdout_h1_2025": "sandbox",
+  "variant_nv_cx_dog_fooding": "control",
+  "variant_nv_cx_platform_global_holdout_h1_2025": "sandbox",
+  "variant_payment_team_dogfooding": "control",
+  "variant_post_checkout_rummikub_web": "treatment",
+  "variant_social-cx-profile-holdout": "treatment",
+  "variant_social_ugc_long_term_holdout": "control",
+  "variant_solo_diner": "control",
+  "variant_total_fee_tally_experiment": "control"
+}
 /*
 ====================================================================================
 Training Data Ready for Modeling - WITH ALL CX360 FEATURES
@@ -576,6 +1124,39 @@ a.*
 , b.cx360_order_count_lifetime
 , b.cx360_avg_vp_lifetime
 , b.cx360_nv_orders_count_lifetime
+-- Device OS flags
+, b.is_android
+, b.is_ios
+, b.is_web
+-- Visitor type flags - 28 days
+, b.device_id_unique_visitor_recent_28_days
+, b.device_id_unique_store_content_page_visitor_recent_28_days
+, b.device_id_unique_store_page_visitor_recent_28_days
+, b.device_id_unique_order_cart_page_visitor_recent_28_days
+, b.device_id_unique_checkout_page_visitor_recent_28_days
+, b.device_id_unique_purchaser_recent_28_days
+, b.device_id_unique_app_installer_recent_28_days
+, b.device_id_unique_core_visitor_recent_28_days
+, b.device_id_home_page_visitor_recent_28_days
+, b.device_id_mobile_splash_page_visitor_recent_28_days
+, b.device_id_multi_store_visitor_recent_28_days
+-- Visitor type flags - 90 days
+, b.device_id_unique_visitor_recent_90_days
+, b.device_id_unique_store_content_page_visitor_recent_90_days
+, b.device_id_unique_store_page_visitor_recent_90_days
+, b.device_id_unique_order_cart_page_visitor_recent_90_days
+, b.device_id_unique_checkout_page_visitor_recent_90_days
+, b.device_id_unique_purchaser_recent_90_days
+, b.device_id_unique_app_installer_recent_90_days
+, b.device_id_unique_core_visitor_recent_90_days
+, b.device_id_home_page_visitor_recent_90_days
+, b.device_id_mobile_splash_page_visitor_recent_90_days
+, b.device_id_multi_store_visitor_recent_90_days
+-- Deep link and Singular events
+, b.device_id_deep_link_event_count_total
+, b.device_id_singular_event_count_total
+, b.device_id_deep_link_recency_days
+, b.device_id_singular_recency_days
 FROM proddb.fionafan.logged_out_personalization_real_time_web_device_id_comprehensive_v5 a 
 LEFT JOIN proddb.fionafan.logged_out_personalization_historical_web_device_id_comprehensive_v5 b 
     ON a.dd_device_id = b.dd_device_id 
@@ -583,4 +1164,4 @@ LEFT JOIN proddb.fionafan.logged_out_personalization_historical_web_device_id_co
 
 GRANT SELECT ON proddb.fionafan.logged_out_personalization_training_comprehensive_v5 TO ROLE read_only_users; 
 
-`
+markwu.valid_gpa_store_candidates_2025q3				

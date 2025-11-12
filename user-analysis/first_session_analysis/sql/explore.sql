@@ -634,3 +634,20 @@ from proddb.fionafan.feed_evolution_1111_cosine_similarity group by all ;
 select * from proddb.fionafan.first_session_second_session_return_logit_results 
 where covariate in ( 'ATTRIBUTION_CNT_BANNER', 'ATTRIBUTION_FIRST_CLICK_FROM_SEARCH')
 limit 1000;
+
+
+
+select cohort_type, avg(impression_had_any) as avg_impression_had_any, avg(attribution_had_any) as avg_attribution_had_any, avg(funnel_had_any) as avg_funnel_had_any, avg(funnel_reached_store_bool) as avg_funnel_reached_store_bool
+, avg(funnel_reached_cart_bool) as avg_funnel_reached_cart_bool, avg(funnel_reached_checkout_bool) as avg_funnel_reached_checkout_bool, avg(funnel_converted_bool) as avg_funnel_converted_bool
+FROM proddb.fionafan.all_user_sessions_with_events_features_gen f
+where 1=1
+    AND f.SESSION_TYPE IN ('first_session')
+group by all;
+
+
+select cohort_type, avg(impression_had_any) as avg_impression_had_any, avg(attribution_had_any) as avg_attribution_had_any, avg(funnel_had_any) as avg_funnel_had_any, avg(funnel_reached_store_bool) as avg_funnel_reached_store_bool
+, avg(funnel_reached_cart_bool) as avg_funnel_reached_cart_bool, avg(funnel_reached_checkout_bool) as avg_funnel_reached_checkout_bool, avg(funnel_converted_bool) as avg_funnel_converted_bool
+FROM proddb.fionafan.all_user_sessions_with_events_features_gen f
+where 1=1
+    AND f.SESSION_TYPE not IN ('first_session')
+group by all;

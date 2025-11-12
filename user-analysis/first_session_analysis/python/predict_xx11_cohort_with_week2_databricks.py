@@ -1,10 +1,10 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Predict 1111 Cohort Membership from First Session Features + Second Session Return
+# MAGIC # Predict Week 3-4 Presence from First Session Features + Week 2 Return
 # MAGIC
-# MAGIC Builds logistic regression models to predict if a user will be in the 1111 cohort
-# MAGIC (users active 1, 1, 1, 1 weeks after onboarding) based on their first session behavior
-# MAGIC **PLUS whether they had a second session**.
+# MAGIC Builds logistic regression models to predict if a user will be present in weeks 3-4
+# MAGIC (users with sessions_day_15_21 > 0 OR sessions_day_22_28 > 0) based on their first session behavior
+# MAGIC **PLUS whether they returned in week 2 (days 8-14)**.
 # MAGIC
 # MAGIC **Models are built separately for each onboarding cohort:**
 # MAGIC - New users
@@ -13,8 +13,8 @@
 # MAGIC
 # MAGIC **Key Steps:**
 # MAGIC 1. Load first session features from Snowflake
-# MAGIC 2. Add second session feature (second_session_id IS NOT NULL)
-# MAGIC 3. Join with 1111 cohort membership (target)
+# MAGIC 2. Add week 2 return feature (sessions_day_8_14 > 0)
+# MAGIC 3. Join with week 3-4 presence (target)
 # MAGIC 4. Build separate logistic regression models for each cohort type
 # MAGIC 5. Compare coefficients across cohorts
 # MAGIC 6. Save results to Snowflake
@@ -70,7 +70,7 @@ OPTIONS = dict(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Define Features (Including Second Session Return)
+# MAGIC ## Define Features (Including Week 2 Return)
 
 # COMMAND ----------
 
@@ -105,46 +105,40 @@ FEATURES = [
     'FUNNEL_SECONDS_TO_CHECKOUT',
     'FUNNEL_SECONDS_TO_SUCCESS',
     'STORE_NV_IMPRESSION_OCCURRED',
-    'HAD_SECOND_SESSION',  # NEW FEATURE
+    'RETURNED_WEEK_2',  # NEW FEATURE
 ]
 
 print(f"📊 Total features defined: {len(FEATURES)}")
-print(f"   - Includes HAD_SECOND_SESSION feature (second_session_id IS NOT NULL)")
+print(f"   - Includes RETURNED_WEEK_2 feature (sessions_day_8_14 > 0)")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Load Data with 1111 Cohort Target and Second Session
+# MAGIC ## Load Data with Week 3-4 Presence Target and Week 2 Return
 
 # COMMAND ----------
 
-# Build feature list for query (excluding the second session feature which comes from enriched table)
-first_session_features = [f for f in FEATURES if f != 'HAD_SECOND_SESSION']
+# Build feature list for query (excluding the week 2 feature which comes from enriched table)
+first_session_features = [f for f in FEATURES if f != 'RETURNED_WEEK_2']
 feature_cols = ", ".join([f"fs.{feat}" for feat in first_session_features])
 
 query = f"""
-WITH cohort_1111 AS (
-    SELECT DISTINCT consumer_id
-    FROM proddb.fionafan.users_activity_1111
-)
 SELECT 
     fs.user_id,
     fs.dd_device_id,
     fs.cohort_type,
     {feature_cols},
-    CASE WHEN e.second_session_id IS NOT NULL THEN 1 ELSE 0 END as had_second_session,
-    CASE WHEN c.consumer_id IS NOT NULL THEN 1 ELSE 0 END as is_1111_cohort
+    CASE WHEN e.sessions_day_8_14 > 0 THEN 1 ELSE 0 END as returned_week_2,
+    CASE WHEN e.sessions_day_15_21 > 0 OR e.sessions_day_22_28 > 0 THEN 1 ELSE 0 END as was_present_week_3_4
 FROM proddb.fionafan.all_user_sessions_with_events_features_gen fs
 LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
     ON fs.user_id = e.consumer_id
-LEFT JOIN cohort_1111 c 
-    ON fs.user_id = c.consumer_id
 WHERE fs.session_type = 'first_session'
     AND fs.cohort_type IS NOT NULL
     AND fs.user_id IS NOT NULL
 """
 
-print("📊 Loading first session data with second session feature...")
+print("📊 Loading first session data with week 2 return feature...")
 
 df_spark = (
     spark.read.format("snowflake")
@@ -165,22 +159,22 @@ print(f"\n✅ Loaded {total_count:,} first sessions")
 
 # Show distribution by cohort type
 print("📊 Cohort Distribution:\n")
-print(f"{'Cohort Type':<20} {'Total Sessions':<15} {'In 1111':<12} {'% in 1111':<12} {'Had 2nd Session':<15}")
+print(f"{'Cohort Type':<20} {'Total Sessions':<15} {'Week 3-4':<12} {'% Week 3-4':<12} {'Returned Week 2':<15}")
 print("-" * 80)
 
 cohort_summary = df_spark.groupBy("cohort_type").agg(
     F.count("*").alias("total_sessions"),
-    F.sum("is_1111_cohort").alias("in_1111"),
-    F.sum("had_second_session").alias("had_second_session")
+    F.sum("was_present_week_3_4").alias("present_week_3_4"),
+    F.sum("returned_week_2").alias("returned_week_2")
 ).orderBy("cohort_type").collect()
 
 for row in cohort_summary:
     cohort = row['cohort_type']
     total = row['total_sessions']
-    in_1111 = row['in_1111']
-    had_2nd = row['had_second_session']
-    pct = 100 * in_1111 / total if total > 0 else 0
-    print(f"{cohort:<20} {total:<15,} {in_1111:<12,} {pct:<12.2f}% {had_2nd:<15,}")
+    week_3_4 = row['present_week_3_4']
+    returned_w2 = row['returned_week_2']
+    pct = 100 * week_3_4 / total if total > 0 else 0
+    print(f"{cohort:<20} {total:<15,} {week_3_4:<12,} {pct:<12.2f}% {returned_w2:<15,}")
 
 # Cache for reuse
 df_spark.cache()
@@ -197,10 +191,20 @@ def prepare_model_dataframe(
     sdf_all: SparkDataFrame, 
     cohort_type: str,
     covariates: List[str], 
-    target: str = "IS_1111_COHORT"
+    target: str = "WAS_PRESENT_WEEK_3_4"
 ) -> Tuple[SparkDataFrame, List[str]]:
     """
     Prepare dataframe for modeling with feature engineering and validation
+    
+    Args:
+        spark: SparkSession
+        sdf_all: Full DataFrame
+        cohort_type: Cohort to filter for (new, active, post_onboarding)
+        covariates: List of feature column names
+        target: Target column name
+        
+    Returns:
+        Tuple of (prepared DataFrame, usable feature list)
     """
     # Filter for cohort
     sdf = sdf_all.filter(F.col("COHORT_TYPE") == cohort_type)
@@ -283,6 +287,18 @@ def fit_logistic_model_spark(
 ) -> pd.DataFrame:
     """
     Fit a logistic regression model using PySpark for a specific cohort
+    
+    Args:
+        spark: SparkSession
+        sdf_all: Full DataFrame
+        cohort_type: Cohort to build model for
+        covariates: List of features
+        target: Target column
+        max_iter: Maximum iterations
+        reg_param: L2 regularization parameter
+        
+    Returns:
+        DataFrame with model coefficients
     """
     print(f"\n{'='*80}")
     print(f"Training Model for {cohort_type.upper()} Cohort")
@@ -432,7 +448,7 @@ def fit_logistic_model_spark(
 
 # COMMAND ----------
 
-target = "IS_1111_COHORT"
+target = "WAS_PRESENT_WEEK_3_4"
 max_iter = 1000
 reg_param = 1.0
 
@@ -519,7 +535,7 @@ for cohort in ['new', 'active', 'post_onboarding']:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Top Features by Cohort (including HAD_SECOND_SESSION)
+# MAGIC ## Top Features by Cohort (including RETURNED_WEEK_2)
 
 # COMMAND ----------
 
@@ -544,19 +560,19 @@ for cohort in ['new', 'active', 'post_onboarding']:
     print("-" * 80)
     for rank, (idx, row) in enumerate(cohort_data.iterrows(), 1):
         feat_display = row['feature']
-        if 'HAD_SECOND_SESSION' in feat_display.upper():
+        if 'RETURNED_WEEK_2' in feat_display.upper():
             feat_display = feat_display + ' ⭐'  # Mark the new feature
         print(f"{rank:<6} {feat_display:<45} {row['coefficient']:>9.4f} {row['pct_impact']:>11.1f}%")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Check HAD_SECOND_SESSION Feature Coefficient
+# MAGIC ## Check RETURNED_WEEK_2 Feature Coefficient
 
 # COMMAND ----------
 
 print(f"\n{'='*80}")
-print("HAD_SECOND_SESSION FEATURE ANALYSIS")
+print("RETURNED_WEEK_2 FEATURE ANALYSIS")
 print(f"{'='*80}")
 print(f"\n{'Cohort':<20} {'Coefficient':<15} {'% Impact':<15} {'Rank':<10}")
 print("-" * 65)
@@ -570,11 +586,11 @@ for cohort in ['new', 'active', 'post_onboarding']:
     cohort_data['abs_coef'] = cohort_data['coefficient'].abs()
     cohort_data = cohort_data.sort_values('abs_coef', ascending=False).reset_index(drop=True)
     
-    second_session_row = cohort_data[cohort_data['feature'].str.upper() == 'HAD_SECOND_SESSION']
+    week2_row = cohort_data[cohort_data['feature'].str.upper() == 'RETURNED_WEEK_2']
     
-    if len(second_session_row) > 0:
-        row = second_session_row.iloc[0]
-        rank = cohort_data[cohort_data['feature'].str.upper() == 'HAD_SECOND_SESSION'].index[0] + 1
+    if len(week2_row) > 0:
+        row = week2_row.iloc[0]
+        rank = cohort_data[cohort_data['feature'].str.upper() == 'RETURNED_WEEK_2'].index[0] + 1
         print(f"{cohort:<20} {row['coefficient']:<15.4f} {row['pct_impact']:<15.1f}% {rank:<10}")
     else:
         print(f"{cohort:<20} {'Not found':<15} {'N/A':<15} {'N/A':<10}")
@@ -625,11 +641,11 @@ if len(plot_df) > 0:
                 alpha=0.8)
     
     ax.set_yticks(x)
-    # Highlight HAD_SECOND_SESSION if in top features
-    ytick_labels = [f + ' ⭐' if 'HAD_SECOND_SESSION' in f.upper() else f for f in top_features]
+    # Highlight RETURNED_WEEK_2 if in top features
+    ytick_labels = [f + ' ⭐' if 'RETURNED_WEEK_2' in f.upper() else f for f in top_features]
     ax.set_yticklabels(ytick_labels, fontsize=9)
     ax.set_xlabel('Coefficient', fontsize=11, fontweight='bold')
-    ax.set_title('Top 20 Features: Coefficient Comparison Across Cohorts\n(includes HAD_SECOND_SESSION)', 
+    ax.set_title('Top 20 Features: Coefficient Comparison Across Cohorts\n(includes RETURNED_WEEK_2)', 
                  fontsize=13, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.axvline(x=0, color='black', linestyle='-', linewidth=0.8)
@@ -666,8 +682,8 @@ if len(plot_df) > 0:
         
         # Customize
         ax.set_yticks(y_pos)
-        # Highlight HAD_SECOND_SESSION
-        ytick_labels = [f + ' ⭐' if 'HAD_SECOND_SESSION' in f.upper() else f for f in cohort_data['feature']]
+        # Highlight RETURNED_WEEK_2
+        ytick_labels = [f + ' ⭐' if 'RETURNED_WEEK_2' in f.upper() else f for f in cohort_data['feature']]
         ax.set_yticklabels(ytick_labels, fontsize=8)
         ax.invert_yaxis()
         ax.set_xlabel('Coefficient', fontsize=10, fontweight='bold')
@@ -696,7 +712,7 @@ if len(plot_df) > 0:
 results_spark = spark.createDataFrame(results_df)
 
 # Save to Snowflake with different table name
-output_table = "first_session_1111_with_second_session_prediction_results"
+output_table = "first_session_week_3_4_presence_with_week2_prediction_results"
 
 results_spark.write.format("snowflake") \
     .options(**OPTIONS) \
@@ -719,13 +735,13 @@ print("="*80)
 print(f"\n📊 Summary:")
 print(f"   - Models trained: 3 (new, active, post_onboarding)")
 print(f"   - Total coefficients: {len(results_df)}")
-print(f"   - Features used: {len(FEATURES)} (includes HAD_SECOND_SESSION)")
+print(f"   - Features used: {len(FEATURES)} (includes RETURNED_WEEK_2)")
 print(f"\n💾 Results saved to:")
 print(f"   - Table: proddb.fionafan.{output_table}")
 print(f"\n🎯 Key Insight:")
-print(f"   - HAD_SECOND_SESSION shows whether user came back for any session")
-print(f"   - Compare its coefficient to understand importance of second session")
-print(f"   - This feature captures immediate engagement beyond first session")
+print(f"   - RETURNED_WEEK_2 shows whether user came back in days 8-14")
+print(f"   - Compare its coefficient to understand importance of week 2 return")
+print(f"   - This feature adds behavioral context beyond first session")
 
 # COMMAND ----------
 

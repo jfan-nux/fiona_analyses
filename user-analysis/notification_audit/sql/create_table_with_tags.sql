@@ -463,7 +463,7 @@ SELECT
   CASE 
     WHEN cohort_type = 'active' AND open_rate < 0.0162 THEN 1
     WHEN cohort_type = 'new' AND open_rate < 0.0227 THEN 1
-    WHEN cohort_type = 'post_onboarding' AND open_rate < 0.0057 THEN 1
+    WHEN cohort_type = 'post_onboarding' AND open_rate < 0.0057 THEN 1ß
     ELSE 0 
   END as is_low_open
 FROM metrics
