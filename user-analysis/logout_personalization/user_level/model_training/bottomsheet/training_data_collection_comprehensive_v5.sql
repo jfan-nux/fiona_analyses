@@ -863,204 +863,15 @@ LEFT JOIN consolidated dd
     ON dd.device_id = a.dd_device_id 
     AND dd.event_ts::DATE = a.first_exposure_time::DATE 
     AND dd.event_ts > a.first_exposure_time 
-WHERE a.first_exposure_time::DATE = $observed_experiment_start_date 
 GROUP BY all
 ;
 
-select tag, custom_attributes:context:page:referrer,custom_attributes:context:campaign:medium,count(1) cnt from proddb.public.fact_dedup_experiment_exposure 
-WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
-    AND experiment_version = 2 
-    AND exposure_time::DATE >= '2025-06-10'::DATE
-    AND exposure_time::DATE <= '2025-06-17'::DATE group by all order by cnt desc limit 10000;
+-- select tag, custom_attributes:context:page:referrer,custom_attributes:context:campaign:medium,count(1) cnt from proddb.public.fact_dedup_experiment_exposure 
+-- WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
+--     AND experiment_version = 2 
+--     AND exposure_time::DATE >= '2025-06-10'::DATE
+--     AND exposure_time::DATE <= '2025-06-17'::DATE group by all order by cnt desc limit 10000;
 
-with exposures AS (
-SELECT 
-bucket_key AS dd_device_id 
-, tag 
-, NULLIF(custom_attributes:context:timezone::VARCHAR, '') AS timezone 
-, NULLIF(custom_attributes:context:page:referrer::VARCHAR, '') AS referrer 
-, NULLIF(custom_attributes:context:campaign:name::VARCHAR, '') AS utm_campaign 
-, NULLIF(custom_attributes:context:campaign:source::VARCHAR, '') AS utm_source 
-, NULLIF(custom_attributes:context:campaign:medium::VARCHAR, '') AS utm_medium 
-, NULLIF(custom_attributes:isGuest::BOOLEAN, FALSE) AS is_guest 
-, exposure_time AS first_exposure_time 
-, CASE 
-        WHEN timezone IS NOT NULL 
-        AND timezone NOT ILIKE 'Etc/Unknown' 
-        AND timezone NOT ILIKE 'Etc/%'
-        AND timezone NOT LIKE '+%'
-        AND timezone NOT LIKE '-%'
-        AND timezone NOT IN ('GMT', 'UTC')
-        AND timezone LIKE '%/%'  -- Valid timezones have format 'Region/City'
-        AND timezone <> '' 
-        AND LEN(timezone) > 3
-        THEN CONVERT_TIMEZONE('UTC', timezone, exposure_time)
-        ELSE CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', exposure_time)
-      END AS first_exposure_time_local 
-FROM proddb.public.fact_dedup_experiment_exposure 
-WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
-    AND experiment_version = 2 
-    AND exposure_time::DATE >= '2025-06-10'::DATE
-    AND exposure_time::DATE <= '2025-06-17'::DATE
-QUALIFY ROW_NUMBER() OVER (PARTITION BY dd_device_id ORDER BY exposure_time ASC) = 1 
-)
-select CASE 
-     WHEN referrer LIKE '%doordash.%' THEN 'Direct'
-     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND NULLIF(referrer, '') IS NULL THEN 'Direct'
-     WHEN NULLIF(utm_medium, '') IS NULL AND NULLIF(utm_source, '') IS NULL AND NULLIF(utm_campaign, '') IS NULL AND (NULLIF(referrer, '') LIKE '%google.%' OR NULLIF(referrer, '') LIKE '%bing.%' OR NULLIF(referrer, '') LIKE '%search.yahoo.%') OR NULLIF(referrer, '') LIKE '%duckduckgo.%' THEN 'Organic Search'
-     WHEN NULLIF(utm_campaign, '') = 'gpa' THEN 'Organic Search'
-     WHEN NULLIF(utm_medium, '') = 'Paid_Social' THEN 'Paid Media'
-     WHEN NULLIF(utm_medium, '') = 'SEMb' THEN 'Paid Media'
-     WHEN NULLIF(utm_medium, '') = 'SEMu' THEN 'Paid Media'
-     WHEN NULLIF(utm_medium, '') = 'SEMc' THEN 'Paid Media'
-     WHEN NULLIF(utm_medium, '') = 'PLA' THEN 'Paid Media'
-     WHEN LOWER(NULLIF(utm_medium, '')) = 'email' THEN 'Email'
-     WHEN LOWER(NULLIF(utm_medium, '')) LIKE '%enterprise%' OR LOWER(NULLIF(utm_source, '')) IN ('partner-link') THEN 'Partners'
-     WHEN LOWER(NULLIF(utm_medium, '')) IN ('affiliate') THEN 'Affiliate' 
-     WHEN LOWER(NULLIF(utm_medium, '')) IN ('web_display') THEN 'Paid Media'
-     WHEN LOWER(NULLIF(utm_medium, '')) IN ('video') THEN 'Paid Media'
-     WHEN utm_campaign is not null or lower(utm_medium) = 'paid' THEN 'Paid Media'
-     when lower(referrer) like '%facebook.%' or lower(referrer) like '%tiktok.%' or lower(referrer) like '%instagram.%' THEN 'Paid Media'
-     when utm_source ilike 'mx_share%' then 'Mx Share'
-     when referrer is not null then 'Mx Share'
-     ELSE 'Other' END AS device_id_general_traffic_type_real_time
-     ,referrer,utm_medium,utm_source,utm_campaign, count(1) cnt 
-     from exposures 
-     where device_id_general_traffic_type_real_time = 'Other'
-     group by all order by cnt desc limit 10000;
-
-    {
-  "anonymousId": "dx_27bb581b08614e9a970baf7858084511",
-  "app_version": "2.8119.3",
-  "application": "consumer-web-next",
-  "cell_name": "cell-002",
-  "consumerId": "146487221",
-  "consumer_id": "146487221",
-  "context": {
-    "app": {
-      "build": "2228dc2761c1267bf5f6835a8b7803cc08873276",
-      "name": "@doordash/app-consumer-ssr",
-      "namespace": "",
-      "version": "2.8119.3"
-    },
-    "campaign": {},
-    "device": {
-      "type": "Web"
-    },
-    "ip": "2601:242:600:ae90:f134:7974:717a:fd38",
-    "library": {
-      "name": "telemetry-js",
-      "version": ""
-    },
-    "locale": "en-US",
-    "os": {
-      "name": "web"
-    },
-    "page": {
-      "path": "/store/cold-stone-creamery-decatur-29200542/36486348/",
-      "referrer": "https://www.doordash.com/home",
-      "search": "?event_type=autocomplete&pickup=false",
-      "title": "Cold Stone Creamery (3727 N Woodford St) - Decatur, IL Menu Delivery [Menu & Prices] | Decatur - DoorDash",
-      "url": "https://www.doordash.com/store/cold-stone-creamery-decatur-29200542/36486348/?event_type=autocomplete&pickup=false"
-    },
-    "screen": {
-      "density": 1.75,
-      "height": 840,
-      "width": 411
-    },
-    "timezone": "America/Chicago",
-    "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
-  },
-  "country": "US",
-  "defaultCountry": "United States",
-  "deviceId": "dx_27bb581b08614e9a970baf7858084511",
-  "device_id": "dx_27bb581b08614e9a970baf7858084511",
-  "distribution": "Equal Weights",
-  "dv_name": "app_download_bottomsheet_store_page_v2",
-  "dv_type": "experiment",
-  "entityId": "d1c09383-68d3-4288-b1a5-07a5b8fc47be",
-  "environment": "prod",
-  "evaluation_id": "5c8cb02d-be19-3253-7eb1-8607195aac44",
-  "evaluation_time": 1749865732,
-  "experience": "doordash",
-  "hostname": "consumer-web-next-ssr-5fcf5b949-k5knf",
-  "in_segment_rollout": true,
-  "isGuest": "",
-  "is_employee": "",
-  "is_platform_web": true,
-  "library_version": "5.2.2",
-  "messageId": "285cce56-2180-46c9-ae43-8c50efa91adc",
-  "originalTimestamp": 1749865742683,
-  "os": "web",
-  "platform": "mobile",
-  "random_uuid": "1d9cbcc0-f265-a2e6-7ee1-dca4604fbd37",
-  "receivedAt": 1749865749644,
-  "revision_version": 17,
-  "sentAt": 1749865751203,
-  "service_name": "dynamic-values-service",
-  "sub_environment": "UNSET_SUB_ENVIRONMENT",
-  "submarketId": "84",
-  "teamId": "",
-  "timestamp": 1749865741124,
-  "touch": true,
-  "userId": "146487221",
-  "user_id": "146926749",
-  "variant_MN_fairness_and_transparency": "control",
-  "variant_affordable_meal_fees_2024q4_experiment": "control",
-  "variant_affordable_meals_miami_test": "control",
-  "variant_bundle_pre_checkout_total_fee_tally_root": "control",
-  "variant_core_cx_discovery_holdout_2025H1": "sandbox",
-  "variant_core_cx_search_holdout_2024H2": "sandbox",
-  "variant_core_cx_search_holdout_2025H1": "sandbox",
-  "variant_cx_doubledash_promotions_m1": "control",
-  "variant_cx_gifting_root": "sandbox",
-  "variant_cx_homepage_discovery_web_realtime_v3": "control",
-  "variant_cx_scheduled_root": "sandbox",
-  "variant_ddfbLoqAutocheckoutCreator": "treatment",
-  "variant_ddfbLoqAutocheckoutCreatorV2": "treatment",
-  "variant_ddfbLoqAutocheckoutCreatorV2Parent": "treatment",
-  "variant_enable_bc_regulatory_response_fee": "control",
-  "variant_enable_leaderboard": "treatment1",
-  "variant_enable_leaderboard_android": "control",
-  "variant_enable_notification_hub_social_proof": "treatment",
-  "variant_enable_pco_loyalty_integration": "control",
-  "variant_enable_profile_photo_for_cx": "treatment",
-  "variant_enable_publish_cancellation_concierge_ui_event": "treatment",
-  "variant_enable_realtime_taste_carousel": "treatment_1",
-  "variant_enable_time_based_pill_filter": "control",
-  "variant_enable_time_based_pill_filter_on_search": "control",
-  "variant_evaluate_delivery_timeliness_for_eta_transparency": "control",
-  "variant_growth_consumer_based_universal_holdout_2023Q4": "sandbox",
-  "variant_growth_consumer_based_universal_holdout_2024Q2": "sandbox",
-  "variant_growth_device_based_universal_holdout_2022h2": "not_holdout",
-  "variant_growth_notifications_hub_consumer_based_holdout_q2_2024": "sandbox",
-  "variant_growth_notifications_hub_holdout_q4_2023": "sandbox",
-  "variant_growth_nux_general_universal_holdout_q3": "treatment",
-  "variant_is_client_id_null": "client_id_is_null",
-  "variant_is_client_id_null_core_cx": "client_id_is_null",
-  "variant_mx_average_rating_improvements": "control",
-  "variant_mx_average_rating_improvements_blacklist_1": "control",
-  "variant_mx_average_rating_improvements_blacklist_10": "control",
-  "variant_mx_average_rating_improvements_blacklist_11": "control",
-  "variant_mx_average_rating_improvements_blacklist_2": "control",
-  "variant_mx_average_rating_improvements_blacklist_3": "control",
-  "variant_mx_average_rating_improvements_blacklist_4": "control",
-  "variant_mx_average_rating_improvements_blacklist_5": "control",
-  "variant_mx_average_rating_improvements_blacklist_6": "control",
-  "variant_mx_average_rating_improvements_blacklist_7": "control",
-  "variant_mx_average_rating_improvements_blacklist_8": "control",
-  "variant_mx_average_rating_improvements_blacklist_9": "control",
-  "variant_nv_basket_building_global_holdout_h1_2025": "sandbox",
-  "variant_nv_cx_affordability_deals_pricing_perception_holdout_h1_2025": "sandbox",
-  "variant_nv_cx_dog_fooding": "control",
-  "variant_nv_cx_platform_global_holdout_h1_2025": "sandbox",
-  "variant_payment_team_dogfooding": "control",
-  "variant_post_checkout_rummikub_web": "treatment",
-  "variant_social-cx-profile-holdout": "treatment",
-  "variant_social_ugc_long_term_holdout": "control",
-  "variant_solo_diner": "control",
-  "variant_total_fee_tally_experiment": "control"
-}
 /*
 ====================================================================================
 Training Data Ready for Modeling - WITH ALL CX360 FEATURES
@@ -1068,6 +879,7 @@ Training Data Ready for Modeling - WITH ALL CX360 FEATURES
 */
 
 CREATE OR REPLACE TABLE proddb.fionafan.logged_out_personalization_training_comprehensive_v5 AS 
+
 SELECT 
 a.* 
 , b.has_associated_consumer_id 
@@ -1075,15 +887,25 @@ a.*
 , b.platform
 , b.device_id_is_active_recent_28_days 
 , b.device_id_sessions_recent_28_days 
+, b.device_id_has_logged_in_recent_28_days
+, b.device_id_is_active_recent_90_days
+, b.device_id_sessions_recent_90_days
+, b.device_id_has_logged_in_recent_90_days
 , b.device_id_orders_recent_28_days
 , b.device_id_has_logged_out_address_entry_recent_28_days
-, b.device_id_has_logged_in_recent_28_days
+, b.device_id_has_logged_in_address_entry_recent_28_days
+, b.device_id_orders_recent_90_days
+, b.device_id_has_logged_out_address_entry_recent_90_days
+, b.device_id_has_logged_in_address_entry_recent_90_days
 , b.device_id_session_id_most_recent_session
 , b.device_id_general_traffic_type_most_recent_session
 , b.device_id_browser_most_recent_session
 , b.device_id_recency_most_recent_session
 , b.device_id_placed_order_most_recent_session
 , b.device_id_is_auto_logged_in_most_recent_session
+, b.device_id_has_logged_out_address_entry_most_recent_session
+, b.device_id_has_logged_in_address_entry_most_recent_session
+, b.device_id_has_logged_in_recent_most_recent_session
 , b.date_summarized
 , b.consumer_id_in_app_orders_recent_28_days
 , b.consumer_id_desktop_web_orders_recent_28_days
@@ -1164,4 +986,13 @@ LEFT JOIN proddb.fionafan.logged_out_personalization_historical_web_device_id_co
 
 GRANT SELECT ON proddb.fionafan.logged_out_personalization_training_comprehensive_v5 TO ROLE read_only_users; 
 
-markwu.valid_gpa_store_candidates_2025q3				
+select count(1) from proddb.fionafan.logged_out_personalization_training_comprehensive_v5;
+select count(1) from proddb.fionafan.logged_out_personalization_real_time_web_device_id_comprehensive_v5;
+
+select count(1)
+FROM proddb.public.fact_dedup_experiment_exposure 
+WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
+    AND experiment_version = 2 
+    AND exposure_time::DATE >= '2025-06-10'::DATE
+    AND exposure_time::DATE <= '2025-06-17'::DATE;
+    -- AND exposure_time::DATE = '2025-06-10'::DATE;
