@@ -651,3 +651,4 @@ FROM proddb.fionafan.all_user_sessions_with_events_features_gen f
 where 1=1
     AND f.SESSION_TYPE not IN ('first_session')
 group by all;
+

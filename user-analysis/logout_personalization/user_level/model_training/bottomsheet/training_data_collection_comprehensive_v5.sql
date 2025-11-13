@@ -696,8 +696,61 @@ a.*
 , b.order_count_lifetime AS cx360_order_count_lifetime
 , b.avg_vp_lifetime AS cx360_avg_vp_lifetime 
 , b.nv_orders_count_lifetime AS cx360_nv_orders_count_lifetime 
+, b.total_spend_lifetime                 AS cx360_total_spend_lifetime
+, b.total_spend_l12m                     AS cx360_total_spend_l12m
+, b.order_count_l28d                     AS cx360_order_count_l28d
+, b.order_count_l14d                     AS cx360_order_count_l14d
+, b.order_count_l90d                     AS cx360_order_count_l90d
+, b.checkout_ratio_lifetime              AS cx360_checkout_ratio_lifetime
+, b.avg_spend_lifetime                   AS cx360_avg_spend_lifetime
+, b.avg_tip_lifetime                     AS cx360_avg_tip_lifetime
+, b.is_current_paid_dashpass             AS cx360_is_current_paid_dashpass
+, b.is_current_entitled_dashpass         AS cx360_is_current_entitled_dashpass
+, b.dashpass_potential_savings_l30d_amt  AS cx360_dashpass_potential_savings_l30d_amt
+, b.is_reachable_email_marketing         AS cx360_is_reachable_email_marketing
+, b.is_email_engaged_l365d               AS cx360_is_email_engaged_l365d
+, b.is_reachable_push_marketing          AS cx360_is_reachable_push_marketing
+, b.promo_delivery_count_l28d            AS cx360_promo_delivery_count_l28d
+, b.promo_delivery_ratio_l365d           AS cx360_promo_delivery_ratio_l365d
+, b.avg_promo_saving_per_order_l90d      AS cx360_avg_promo_saving_per_order_l90d
+, b.cancel_count_lifetime                AS cx360_cancel_count_lifetime
+, b.cancel_count_l28d                    AS cx360_cancel_count_l28d
+, b.lateness_count_lifetime              AS cx360_lateness_count_lifetime
+, b.lateness_count_l28d                  AS cx360_lateness_count_l28d
+, b.is_guest                             AS cx360_is_guest
+, b.is_loyal_top_mx                      AS cx360_is_loyal_top_mx
+, b.price_sensitivity_model_score_v2     AS cx360_price_sensitivity_model_score_v2
+, b.ml_cx_ltv_prediction                 AS cx360_ml_cx_ltv_prediction
+, b.ml_active_cx_churn_propensity_score_quintile_bucket AS cx360_ml_active_cx_churn_propensity_score_quintile_bucket
+, b.total_main_visitor_count_l28d        AS cx360_total_main_visitor_count_l28d
+, b.homepage_session_count_l28d          AS cx360_homepage_session_count_l28d
+, b.sessions_count_l28d_category         AS cx360_sessions_count_l28d_category
+, b.total_vp_l12m                        AS cx360_total_vp_l12m
+, b.total_vp_l90d                        AS cx360_total_vp_l90d
+, b.total_vp_l28d                        AS cx360_total_vp_l28d
+, b.total_vp_l7d                         AS cx360_total_vp_l7d
+, b.total_gov_l12m                       AS cx360_total_gov_l12m
+, b.total_gov_l90d                       AS cx360_total_gov_l90d
+, b.total_gov_l28d                       AS cx360_total_gov_l28d
+, b.total_gov_l7d                        AS cx360_total_gov_l7d
+, b.days_active_lifetime                 AS cx360_days_active_lifetime
+, b.first_order_timestamp_utc            AS cx360_first_order_timestamp_utc
+, b.last_order_date                      AS cx360_last_order_date
+, b.recency_days                         AS cx360_recency_days
+, b.order_frequency_monthly              AS cx360_order_frequency_monthly
+, b.business_count_lifetime              AS cx360_business_count_lifetime
+, b.store_count_lifetime                 AS cx360_store_count_lifetime
+, b.delivery_address_count_lifetime      AS cx360_delivery_address_count_lifetime
+, b.is_employee                          AS cx360_is_employee
+, b.is_blacklisted                       AS cx360_is_blacklisted
+, b.defect_delivery_count_lifetime       AS cx360_defect_delivery_count_lifetime
+, b.never_delivered_count_lifetime       AS cx360_never_delivered_count_lifetime
+, b.missing_incorrect_count_lifetime     AS cx360_missing_incorrect_count_lifetime
+, b.high_quality_delivery_count_lifetime AS cx360_high_quality_delivery_count_lifetime
+, b.total_main_visitor_count_lifetime / NULLIF(b.days_active_lifetime,0) AS cx360_avg_visits_per_active_day
+, b.total_spend_l12m / NULLIF(b.order_count_lifetime,0)                 AS cx360_avg_spend_per_order
 FROM recent_behavior a 
-LEFT JOIN edw.growth.cx360_model_snapshot_dlcopy b 
+LEFT JOIN x360.prod.consumer_snapshot b 
 
     ON a.consumer_id = b.consumer_id 
     AND a.consumer_id IS NOT NULL 
@@ -797,6 +850,8 @@ bucket_key AS dd_device_id
 , NULLIF(custom_attributes:context:campaign:source::VARCHAR, '') AS utm_source 
 , NULLIF(custom_attributes:context:campaign:medium::VARCHAR, '') AS utm_medium 
 , NULLIF(custom_attributes:isGuest::BOOLEAN, FALSE) AS is_guest 
+, NULLIF(custom_attributes:is_employee::BOOLEAN, FALSE) AS is_employee 
+, NULLIF(custom_attributes:submarketId::VARCHAR, '') AS submarket_id 
 , exposure_time AS first_exposure_time 
 , CASE 
         WHEN timezone IS NOT NULL 
@@ -849,20 +904,23 @@ a.dd_device_id
 , CASE WHEN device_id_general_traffic_type_real_time = 'Partners' THEN True ELSE False END AS device_id_channel_is_partners_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Affiliate' THEN True ELSE False END AS device_id_channel_is_affiliate_real_time 
 , CASE WHEN device_id_general_traffic_type_real_time = 'Mx Share' THEN True ELSE False END AS device_id_channel_is_mx_share_real_time 
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 0 AND 3 THEN True ELSE False END AS device_id_first_exposure_time_is_0_to_3_real_time
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 4 AND 7 THEN True ELSE False END AS device_id_first_exposure_time_is_4_to_7_real_time
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 8 AND 11 THEN True ELSE False END AS device_id_first_exposure_time_is_8_to_11_real_time
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 12 AND 15 THEN True ELSE False END AS device_id_first_exposure_time_is_12_to_15_real_time
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 16 AND 19 THEN True ELSE False END AS device_id_first_exposure_time_is_16_to_19_real_time
-, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 20 AND 23 THEN True ELSE False END AS device_id_first_exposure_time_is_20_to_23_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 0 AND 5 THEN True ELSE False END AS device_id_first_exposure_time_is_0_to_6_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 6 AND 9 THEN True ELSE False END AS device_id_first_exposure_time_is_6_to_10_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 10 AND 13 THEN True ELSE False END AS device_id_first_exposure_time_is_10_to_14_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 14 AND 16 THEN True ELSE False END AS device_id_first_exposure_time_is_14_to_17_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 17 AND 20 THEN True ELSE False END AS device_id_first_exposure_time_is_17_to_21_real_time
+, CASE WHEN HOUR(first_exposure_time_local) BETWEEN 21 AND 23 THEN True ELSE False END AS device_id_first_exposure_time_is_21_to_24_real_time
 , first_exposure_time
 , first_exposure_time_local 
+, b.tier AS device_id_submarket_tier_real_time
 , MAX(CASE WHEN dd.delivery_id IS NOT NULL THEN True ELSE False END) AS device_id_placed_an_order_real_time
 FROM exposures a 
 LEFT JOIN consolidated dd 
     ON dd.device_id = a.dd_device_id 
     AND dd.event_ts::DATE = a.first_exposure_time::DATE 
     AND dd.event_ts > a.first_exposure_time 
+left join proddb.static.yipit_submarket_tiers b on a.submarket_id = b.submarket_id::VARCHAR 
+
 GROUP BY all
 ;
 
@@ -877,8 +935,14 @@ GROUP BY all
 Training Data Ready for Modeling - WITH ALL CX360 FEATURES
 ====================================================================================
 */
+select top 10 *  FROM proddb.public.fact_dedup_experiment_exposure 
+WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
+    AND experiment_version = 2 
+    AND exposure_time::DATE >= '2025-06-10'::DATE
+    AND exposure_time::DATE <= '2025-06-17'::DATE;
 
 CREATE OR REPLACE TABLE proddb.fionafan.logged_out_personalization_training_comprehensive_v5 AS 
+
 
 SELECT 
 a.* 
@@ -946,10 +1010,146 @@ a.*
 , b.cx360_order_count_lifetime
 , b.cx360_avg_vp_lifetime
 , b.cx360_nv_orders_count_lifetime
+-- Additional CX360 features
+, b.cx360_total_spend_lifetime
+, b.cx360_total_spend_l12m
+, b.cx360_order_count_l28d
+, b.cx360_order_count_l14d
+, b.cx360_order_count_l90d
+, b.cx360_checkout_ratio_lifetime
+, b.cx360_avg_spend_lifetime
+, b.cx360_avg_tip_lifetime
+, b.cx360_is_current_paid_dashpass
+, b.cx360_is_current_entitled_dashpass
+, b.cx360_dashpass_potential_savings_l30d_amt
+, b.cx360_is_reachable_email_marketing
+, b.cx360_is_email_engaged_l365d
+, b.cx360_is_reachable_push_marketing
+, b.cx360_promo_delivery_count_l28d
+, b.cx360_promo_delivery_ratio_l365d
+, b.cx360_avg_promo_saving_per_order_l90d
+, b.cx360_cancel_count_lifetime
+, b.cx360_cancel_count_l28d
+, b.cx360_lateness_count_lifetime
+, b.cx360_lateness_count_l28d
+, b.cx360_is_guest
+, b.cx360_is_loyal_top_mx
+, b.cx360_price_sensitivity_model_score_v2
+, b.cx360_ml_cx_ltv_prediction
+, b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket
+, b.cx360_total_main_visitor_count_l28d
+, b.cx360_homepage_session_count_l28d
+, b.cx360_sessions_count_l28d_category
+, b.cx360_total_vp_l12m
+, b.cx360_total_vp_l90d
+, b.cx360_total_vp_l28d
+, b.cx360_total_vp_l7d
+, b.cx360_total_gov_l12m
+, b.cx360_total_gov_l90d
+, b.cx360_total_gov_l28d
+, b.cx360_total_gov_l7d
+, b.cx360_days_active_lifetime
+, b.cx360_recency_days
+, b.cx360_order_frequency_monthly
+, b.cx360_business_count_lifetime
+, b.cx360_store_count_lifetime
+, b.cx360_delivery_address_count_lifetime
+, b.cx360_is_employee
+, b.cx360_is_blacklisted
+, b.cx360_defect_delivery_count_lifetime
+, b.cx360_never_delivered_count_lifetime
+, b.cx360_missing_incorrect_count_lifetime
+, b.cx360_high_quality_delivery_count_lifetime
+, b.cx360_total_main_visitor_count_lifetime / NULLIF(b.cx360_days_active_lifetime,0) AS cx360_avg_visits_per_active_day
+, b.cx360_total_spend_l12m / NULLIF(b.cx360_order_count_lifetime,0) AS cx360_avg_spend_per_order
 -- Device OS flags
 , b.is_android
 , b.is_ios
 , b.is_web
+-- Binary categorical features
+-- Platform
+, CASE WHEN b.platform = 'mobile' THEN 1 ELSE 0 END AS platform_mobile
+, CASE WHEN b.platform = 'desktop' THEN 1 ELSE 0 END AS platform_desktop
+, CASE WHEN b.platform IS NULL THEN 1 ELSE 0 END AS platform_missing
+-- Traffic type real-time
+, CASE WHEN a.device_id_general_traffic_type_real_time = 'Organic Search' THEN 1 ELSE 0 END AS traffic_rt_organic_search
+, CASE WHEN a.device_id_general_traffic_type_real_time = 'Direct' THEN 1 ELSE 0 END AS traffic_rt_direct
+, CASE WHEN a.device_id_general_traffic_type_real_time = 'Paid Media' THEN 1 ELSE 0 END AS traffic_rt_paid_media
+, CASE WHEN a.device_id_general_traffic_type_real_time = 'Mx Share' THEN 1 ELSE 0 END AS traffic_rt_mx_share
+, CASE WHEN a.device_id_general_traffic_type_real_time IN ('Partners', 'Affiliate', 'Other', 'Email') THEN 1 ELSE 0 END AS traffic_rt_other
+, CASE WHEN a.device_id_general_traffic_type_real_time IS NULL THEN 1 ELSE 0 END AS traffic_rt_missing
+-- Traffic type most recent session
+, CASE WHEN b.device_id_general_traffic_type_most_recent_session = 'Direct' THEN 1 ELSE 0 END AS traffic_mrs_direct
+, CASE WHEN b.device_id_general_traffic_type_most_recent_session = 'Organic Search' THEN 1 ELSE 0 END AS traffic_mrs_organic_search
+, CASE WHEN b.device_id_general_traffic_type_most_recent_session = 'Paid Media' THEN 1 ELSE 0 END AS traffic_mrs_paid_media
+, CASE WHEN b.device_id_general_traffic_type_most_recent_session IN ('Other', 'Paid Social', 'Partners', 'Affiliate', 'Email') THEN 1 ELSE 0 END AS traffic_mrs_other
+, CASE WHEN b.device_id_general_traffic_type_most_recent_session IS NULL THEN 1 ELSE 0 END AS traffic_mrs_missing
+-- Browser
+, CASE WHEN b.device_id_browser_most_recent_session = 'Safari' THEN 1 ELSE 0 END AS browser_safari
+, CASE WHEN b.device_id_browser_most_recent_session = 'Chrome' THEN 1 ELSE 0 END AS browser_chrome
+, CASE WHEN b.device_id_browser_most_recent_session = 'Instagram In-App' THEN 1 ELSE 0 END AS browser_instagram_inapp
+, CASE WHEN b.device_id_browser_most_recent_session = 'Chrome iOS' THEN 1 ELSE 0 END AS browser_chrome_ios
+, CASE WHEN b.device_id_browser_most_recent_session IN ('Other', 'Facebook In-App', 'Firefox', 'Firefox iOS', 'Edge', 'Opera', 'Snapchat In-App', 'Pinterest In-App', 'UC Browser', 'Twitter In-App') THEN 1 ELSE 0 END AS browser_other
+, CASE WHEN b.device_id_browser_most_recent_session IS NULL THEN 1 ELSE 0 END AS browser_missing
+-- Country
+, CASE WHEN b.cx360_country = 'US' THEN 1 ELSE 0 END AS country_us
+, CASE WHEN b.cx360_country = 'CANADA' THEN 1 ELSE 0 END AS country_canada
+, CASE WHEN b.cx360_country = 'AUSTRALIA' THEN 1 ELSE 0 END AS country_australia
+, CASE WHEN b.cx360_country NOT IN ('US', 'CANADA', 'AUSTRALIA') AND b.cx360_country IS NOT NULL THEN 1 ELSE 0 END AS country_other
+, CASE WHEN b.cx360_country IS NULL THEN 1 ELSE 0 END AS country_missing
+-- Lifestage
+, CASE WHEN b.cx360_lifestage = 'Active' THEN 1 ELSE 0 END AS lifestage_active
+, CASE WHEN b.cx360_lifestage = 'Dormant' THEN 1 ELSE 0 END AS lifestage_dormant
+, CASE WHEN b.cx360_lifestage = 'Churn' THEN 1 ELSE 0 END AS lifestage_churn
+, CASE WHEN b.cx360_lifestage = 'Non-Purchaser' THEN 1 ELSE 0 END AS lifestage_non_purchaser
+, CASE WHEN b.cx360_lifestage = 'Super Churn' THEN 1 ELSE 0 END AS lifestage_super_churn
+, CASE WHEN b.cx360_lifestage = 'New' THEN 1 ELSE 0 END AS lifestage_new
+, CASE WHEN b.cx360_lifestage = 'Very Churn' THEN 1 ELSE 0 END AS lifestage_very_churn
+, CASE WHEN b.cx360_lifestage IS NULL THEN 1 ELSE 0 END AS lifestage_missing
+-- Recency frequency
+, CASE WHEN b.cx360_recency_order_frequency_category = 'Low' THEN 1 ELSE 0 END AS recency_freq_low
+, CASE WHEN b.cx360_recency_order_frequency_category = 'High' THEN 1 ELSE 0 END AS recency_freq_high
+, CASE WHEN b.cx360_recency_order_frequency_category = 'Medium' THEN 1 ELSE 0 END AS recency_freq_medium
+, CASE WHEN b.cx360_recency_order_frequency_category IS NULL THEN 1 ELSE 0 END AS recency_freq_missing
+-- Order recency
+, CASE WHEN b.cx360_order_recency_category = 'Active' THEN 1 ELSE 0 END AS order_recency_active
+, CASE WHEN b.cx360_order_recency_category = 'Lapsed' THEN 1 ELSE 0 END AS order_recency_lapsed
+, CASE WHEN b.cx360_order_recency_category = 'In-Active' THEN 1 ELSE 0 END AS order_recency_inactive
+, CASE WHEN b.cx360_order_recency_category IS NULL THEN 1 ELSE 0 END AS order_recency_missing
+-- Sessions count L28D
+, CASE WHEN b.cx360_sessions_count_l28d_category = 'Low' THEN 1 ELSE 0 END AS sessions_l28d_low
+, CASE WHEN b.cx360_sessions_count_l28d_category = 'Medium' THEN 1 ELSE 0 END AS sessions_l28d_medium
+, CASE WHEN b.cx360_sessions_count_l28d_category = 'High' THEN 1 ELSE 0 END AS sessions_l28d_high
+, CASE WHEN b.cx360_sessions_count_l28d_category IS NULL THEN 1 ELSE 0 END AS sessions_l28d_missing
+-- Submarket tier
+, CASE WHEN a.device_id_submarket_tier_real_time = 1 THEN 1 ELSE 0 END AS submarket_tier_1
+, CASE WHEN a.device_id_submarket_tier_real_time = 2 THEN 1 ELSE 0 END AS submarket_tier_2
+, CASE WHEN a.device_id_submarket_tier_real_time = 3 THEN 1 ELSE 0 END AS submarket_tier_3
+, CASE WHEN a.device_id_submarket_tier_real_time = 4 THEN 1 ELSE 0 END AS submarket_tier_4
+, CASE WHEN a.device_id_submarket_tier_real_time = 5 THEN 1 ELSE 0 END AS submarket_tier_5
+, CASE WHEN a.device_id_submarket_tier_real_time IS NULL THEN 1 ELSE 0 END AS submarket_tier_missing
+-- Churn quintile
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket = 'quintile_1' THEN 1 ELSE 0 END AS churn_quintile_1
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket = 'quintile_2' THEN 1 ELSE 0 END AS churn_quintile_2
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket = 'quintile_3' THEN 1 ELSE 0 END AS churn_quintile_3
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket = 'quintile_4' THEN 1 ELSE 0 END AS churn_quintile_4
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket = 'quintile_5' THEN 1 ELSE 0 END AS churn_quintile_5
+, CASE WHEN b.cx360_ml_active_cx_churn_propensity_score_quintile_bucket IS NULL THEN 1 ELSE 0 END AS churn_quintile_missing
+-- Favorite cuisine
+, CASE WHEN b.cx360_freq_category = 'burgers' THEN 1 ELSE 0 END AS freq_cat_burgers
+, CASE WHEN b.cx360_freq_category = 'mexican' THEN 1 ELSE 0 END AS freq_cat_mexican
+, CASE WHEN b.cx360_freq_category = 'american' THEN 1 ELSE 0 END AS freq_cat_american
+, CASE WHEN b.cx360_freq_category IN ('breakfast_sandwiches', 'breakfast') THEN 1 ELSE 0 END AS freq_cat_breakfast
+, CASE WHEN b.cx360_freq_category = 'coffee_tea' THEN 1 ELSE 0 END AS freq_cat_coffee_tea
+, CASE WHEN b.cx360_freq_category IN ('chinese_food', 'japanese', 'thai') THEN 1 ELSE 0 END AS freq_cat_asian
+, CASE WHEN b.cx360_freq_category = 'pizza' THEN 1 ELSE 0 END AS freq_cat_pizza
+, CASE WHEN b.cx360_freq_category IN ('chicken_wings', 'chicken_shop') THEN 1 ELSE 0 END AS freq_cat_chicken
+, CASE WHEN b.cx360_freq_category IN ('sandwiches', 'sub') THEN 1 ELSE 0 END AS freq_cat_sandwiches_subs
+, CASE WHEN b.cx360_freq_category = 'italian' THEN 1 ELSE 0 END AS freq_cat_italian
+, CASE WHEN b.cx360_freq_category = 'indian' THEN 1 ELSE 0 END AS freq_cat_indian
+, CASE WHEN b.cx360_freq_category IN ('convenience_store', 'grocery') THEN 1 ELSE 0 END AS freq_cat_convenience
+, CASE WHEN b.cx360_freq_category NOT IN ('burgers', 'mexican', 'american', 'convenience_store', 'breakfast_sandwiches', 'coffee_tea', 'chinese_food', 'pizza', 'chicken_wings', 'japanese', 'chicken_shop', 'grocery', 'italian', 'sandwiches', 'dessert_and_fast-food', 'indian', 'thai', 'fast_food', 'breakfast', 'salads', 'pickup', 'sub', 'seafood') AND b.cx360_freq_category IS NOT NULL THEN 1 ELSE 0 END AS freq_cat_other
+, CASE WHEN b.cx360_freq_category IS NULL THEN 1 ELSE 0 END AS freq_cat_missing
 -- Visitor type flags - 28 days
 , b.device_id_unique_visitor_recent_28_days
 , b.device_id_unique_store_content_page_visitor_recent_28_days
@@ -996,3 +1196,132 @@ WHERE experiment_name = 'app_download_bottomsheet_store_page_v2'
     AND exposure_time::DATE >= '2025-06-10'::DATE
     AND exposure_time::DATE <= '2025-06-17'::DATE;
     -- AND exposure_time::DATE = '2025-06-10'::DATE;
+
+
+
+    "PLATFORM",
+    "DEVICE_ID_GENERAL_TRAFFIC_TYPE_REAL_TIME",
+    "DEVICE_ID_GENERAL_TRAFFIC_TYPE_MOST_RECENT_SESSION",
+    "DEVICE_ID_BROWSER_MOST_RECENT_SESSION",
+    "CX360_COUNTRY",
+    "CX360_LIFESTAGE",
+    "CX360_RECENCY_ORDER_FREQUENCY_CATEGORY",
+    "CX360_ORDER_RECENCY_CATEGORY",
+    "CX360_FREQ_CATEGORY",  # Most frequent cuisine category;
+
+select cx360_ml_active_cx_churn_propensity_score_quintile_bucket, count(1) 
+from proddb.fionafan.logged_out_personalization_training_comprehensive_v5 group by all order by count(1) desc;
+
+hardcode 
+
+platform: 
+- mobile, desktop, null as missing
+
+DEVICE_ID_GENERAL_TRAFFIC_TYPE_REAL_TIME:
+- Organic Search,Direct
+Paid Media
+Mx Share
+, null as missing
+,
+Partners
+Affiliate
+Other
+Email these four as other
+
+DEVICE_ID_GENERAL_TRAFFIC_TYPE_MOST_RECENT_SESSION:
+Direct
+Organic Search
+Paid Media
+Other
+
+
+    Paid Social
+    Partners
+    Affiliate
+    Email
+these four as Other
+null as missing
+
+DEVICE_ID_BROWSER_MOST_RECENT_SESSION
+Safari
+Chrome
+Instagram In-App
+Chrome iOS
+Other
+
+Facebook In-App
+Firefox
+Firefox iOS
+Edge
+Opera
+Snapchat In-App
+Pinterest In-App
+UC Browser
+Twitter In-App
+these eight as Other
+
+null as missing
+
+
+CX360_COUNTRY
+null as missing
+US
+CANADA
+AUSTRALIA
+OTHERS
+
+
+CX360_LIFESTAGE
+null
+Active
+Dormant
+Churn
+Non-Purchaser
+Super Churn
+New
+Very Churn
+
+
+CX360_RECENCY_ORDER_FREQUENCY_CATEGORY
+null
+Low
+High
+Medium
+
+
+CX360_ORDER_RECENCY_CATEGORY
+null
+Active
+Lapsed
+In-Active
+
+
+CX360_FREQ_CATEGORY
+
+null
+burgers
+mexican
+american
+convenience_store
+breakfast_sandwiches
+coffee_tea
+chinese_food
+pizza
+chicken_wings
+japanese
+chicken_shop
+grocery
+italian
+sandwiches
+dessert_and_fast-food
+indian
+thai
+fast_food
+breakfast
+salads
+pickup
+sub
+seafood
+
+all other as other
+
