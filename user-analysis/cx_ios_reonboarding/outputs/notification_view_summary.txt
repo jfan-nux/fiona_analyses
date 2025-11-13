@@ -1,0 +1,53 @@
+================================================================================
+NOTIFICATION PAGE VIEW ANALYSIS BY PROMO ELIGIBILITY
+Treatment Users Only | Date Range: 09/08/2025 - 11/03/2025
+================================================================================
+
+SUMMARY: NOTIFICATION PAGE VIEW RATES BY PROMO ELIGIBILITY
+================================================================================
+
+Promo Eligible:
+  Total Treatment Users:        83,636
+  Saw Notification Page:        28,696 (34.31%)
+  Total Notification Views:     28,788
+  Avg Views per Viewer:         1.00
+
+  Other Engagement:
+    Saw Promo Page:             10,551 (12.61%)
+    Did Reonboarding Flow:      28,700 (34.32%)
+    Redeemed Promo:             5,512 (6.59%)
+
+Not Promo Eligible:
+  Total Treatment Users:        690,075
+  Saw Notification Page:        256,785 (37.21%)
+  Total Notification Views:     257,614
+  Avg Views per Viewer:         1.00
+
+  Other Engagement:
+    Saw Promo Page:             2,644 (0.38%)
+    Did Reonboarding Flow:      256,791 (37.21%)
+    Redeemed Promo:             2,185 (0.32%)
+
+================================================================================
+KEY FINDING:
+  Not Promo Eligible users have +2.90pp HIGHER notification view rate
+  (37.21% vs 34.31%)
+================================================================================
+
+INTERPRETATION:
+- Both promo eligible and non-eligible users in treatment saw the notification 
+  page at similar rates (~34-37%)
+- The slight difference (2.9pp higher for non-eligible) is relatively small
+- Promo eligible users had much higher redemption rates (6.59% vs 0.32%), 
+  which is expected by design
+- Reonboarding flow completion aligns closely with notification view rates
+  for both groups
+
+DAILY TREND (Last 10 Days):
+- Oct 5-16: Main experiment period with consistent daily notification views
+- After Oct 16: Very few notification views (experiment likely ended)
+- Peak days: Oct 11-12 with ~10K daily notification views (combined)
+================================================================================
+
+
+

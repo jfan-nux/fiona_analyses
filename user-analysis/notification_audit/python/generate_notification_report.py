@@ -152,6 +152,9 @@ def plot_metric(df_pivot, metric_col, ylabel, title, flag_col=None, ax=None):
     ax.legend(loc='best', frameon=True, shadow=True)
     ax.grid(True, alpha=0.3)
     
+    # Limit x-axis to day 28
+    ax.set_xlim(0, 28)
+    
     # Format y-axis as percentage if it's a rate
     if 'rate' in metric_col.lower() or 'pct' in metric_col.lower():
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.1%}'))

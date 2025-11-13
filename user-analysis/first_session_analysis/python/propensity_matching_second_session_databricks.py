@@ -151,6 +151,8 @@ SELECT
 FROM proddb.fionafan.all_user_sessions_with_events_features_gen fs
 LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
     ON fs.user_id = e.consumer_id
+    AND (e.second_session_id IS NULL 
+         OR DATEDIFF(day, e.exposure_time, e.second_session_ts) < 14)  -- Only include second sessions in weeks 1-2 from exposure
 LEFT JOIN cohort_1111 c 
     ON fs.user_id = c.consumer_id
 LEFT JOIN week1_orders w

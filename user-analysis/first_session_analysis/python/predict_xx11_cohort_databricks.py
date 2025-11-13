@@ -1,9 +1,9 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Predict 1111 Cohort Membership from First Session Features
+# MAGIC # Predict Week 3-4 Presence from First Session Features
 # MAGIC
-# MAGIC Builds logistic regression models to predict if a user will be in the 1111 cohort
-# MAGIC (users active 1, 1, 1, 1 weeks after onboarding) based on their first session behavior.
+# MAGIC Builds logistic regression models to predict if a user will be present in weeks 3-4
+# MAGIC (users with sessions_day_15_21 > 0 OR sessions_day_22_28 > 0) based on their first session behavior.
 # MAGIC
 # MAGIC **Models are built separately for each onboarding cohort:**
 # MAGIC - New users
@@ -12,7 +12,7 @@
 # MAGIC
 # MAGIC **Key Steps:**
 # MAGIC 1. Load first session features from Snowflake
-# MAGIC 2. Join with 1111 cohort membership (target)
+# MAGIC 2. Join with week 3-4 presence (target)
 # MAGIC 3. Build separate logistic regression models for each cohort type
 # MAGIC 4. Compare coefficients across cohorts
 # MAGIC 5. Save results to Snowflake
@@ -110,7 +110,7 @@ print(f"📊 Total features defined: {len(FEATURES)}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Load Data with 1111 Cohort Target
+# MAGIC ## Load Data with Week 3-4 Presence Target
 
 # COMMAND ----------
 
@@ -118,24 +118,21 @@ print(f"📊 Total features defined: {len(FEATURES)}")
 feature_cols = ", ".join([f"fs.{feat}" for feat in FEATURES])
 
 query = f"""
-WITH cohort_1111 AS (
-    SELECT DISTINCT consumer_id
-    FROM proddb.fionafan.users_activity_1111
-)
 SELECT 
     fs.user_id,
     fs.dd_device_id,
     fs.cohort_type,
     {feature_cols},
-    CASE WHEN c.consumer_id IS NOT NULL THEN 1 ELSE 0 END as is_1111_cohort
+    CASE WHEN e.sessions_day_15_21 > 0 OR e.sessions_day_22_28 > 0 THEN 1 ELSE 0 END as was_present_week_3_4
 FROM proddb.fionafan.all_user_sessions_with_events_features_gen fs
-LEFT JOIN cohort_1111 c ON fs.user_id = c.consumer_id
+LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
+    ON fs.user_id = e.consumer_id
 WHERE fs.session_type = 'first_session'
     AND fs.cohort_type IS NOT NULL
     AND fs.user_id IS NOT NULL
 """
 
-print("📊 Loading first session data with 1111 cohort target...")
+print("📊 Loading first session data with week 3-4 presence target...")
 
 df_spark = (
     spark.read.format("snowflake")
@@ -156,20 +153,20 @@ print(f"\n✅ Loaded {total_count:,} first sessions")
 
 # Show distribution by cohort type
 print("📊 Cohort Distribution:\n")
-print(f"{'Cohort Type':<20} {'Total Sessions':<15} {'In 1111':<12} {'% in 1111':<12}")
+print(f"{'Cohort Type':<20} {'Total Sessions':<15} {'Week 3-4':<12} {'% Week 3-4':<12}")
 print("-" * 60)
 
 cohort_summary = df_spark.groupBy("cohort_type").agg(
     F.count("*").alias("total_sessions"),
-    F.sum("is_1111_cohort").alias("in_1111")
+    F.sum("was_present_week_3_4").alias("present_week_3_4")
 ).orderBy("cohort_type").collect()
 
 for row in cohort_summary:
     cohort = row['cohort_type']
     total = row['total_sessions']
-    in_1111 = row['in_1111']
-    pct = 100 * in_1111 / total if total > 0 else 0
-    print(f"{cohort:<20} {total:<15,} {in_1111:<12,} {pct:<12.2f}%")
+    week_3_4 = row['present_week_3_4']
+    pct = 100 * week_3_4 / total if total > 0 else 0
+    print(f"{cohort:<20} {total:<15,} {week_3_4:<12,} {pct:<12.2f}%")
 
 # Cache for reuse
 df_spark.cache()
@@ -186,7 +183,7 @@ def prepare_model_dataframe(
     sdf_all: SparkDataFrame, 
     cohort_type: str,
     covariates: List[str], 
-    target: str = "IS_1111_COHORT"
+    target: str = "WAS_PRESENT_WEEK_3_4"
 ) -> Tuple[SparkDataFrame, List[str]]:
     """
     Prepare dataframe for modeling with feature engineering and validation
@@ -443,7 +440,7 @@ def fit_logistic_model_spark(
 
 # COMMAND ----------
 
-target = "IS_1111_COHORT"
+target = "WAS_PRESENT_WEEK_3_4"
 max_iter = 1000
 reg_param = 1.0
 
@@ -669,7 +666,7 @@ if len(plot_df) > 0:
 results_spark = spark.createDataFrame(results_df)
 
 # Save to Snowflake
-output_table = "first_session_1111_cohort_prediction_results"
+output_table = "first_session_week_3_4_presence_prediction_results"
 
 results_spark.write.format("snowflake") \
     .options(**OPTIONS) \
@@ -696,7 +693,7 @@ print(f"   - Features used: {len(FEATURES)}")
 print(f"\n💾 Results saved to:")
 print(f"   - Table: proddb.fionafan.{output_table}")
 print(f"\n🎯 Next Steps:")
-print(f"   1. Review top features to understand what predicts 1111 cohort membership")
+print(f"   1. Review top features to understand what predicts week 3-4 presence")
 print(f"   2. Compare coefficients across cohorts to see which features matter for each")
 print(f"   3. Use insights to improve onboarding experience")
 
@@ -797,18 +794,15 @@ FEATURES = [
 feature_cols = ", ".join([f"fs.{feat}" for feat in FEATURES])
 
 query = f"""
-WITH cohort_1111 AS (
-    SELECT DISTINCT consumer_id
-    FROM proddb.fionafan.users_activity_1111
-)
 SELECT 
     fs.user_id,
     fs.dd_device_id,
     fs.cohort_type,
     {feature_cols},
-    CASE WHEN c.consumer_id IS NOT NULL THEN 1 ELSE 0 END as is_1111_cohort
+    CASE WHEN e.sessions_day_15_21 > 0 OR e.sessions_day_22_28 > 0 THEN 1 ELSE 0 END as was_present_week_3_4
 FROM proddb.fionafan.all_user_sessions_with_events_features_gen fs
-LEFT JOIN cohort_1111 c ON fs.user_id = c.consumer_id
+LEFT JOIN proddb.fionafan.all_user_sessions_enriched e 
+    ON fs.user_id = e.consumer_id
 WHERE fs.session_type = 'first_session'
     AND fs.cohort_type IS NOT NULL
     AND fs.user_id IS NOT NULL
@@ -839,7 +833,7 @@ def train_xgboost_model(
     df: pd.DataFrame,
     cohort_type: str,
     features: list,
-    target: str = 'IS_1111_COHORT',
+    target: str = 'WAS_PRESENT_WEEK_3_4',
     n_estimators: int = 100,
     max_depth: int = 6,
     learning_rate: float = 0.1,
@@ -1182,7 +1176,7 @@ print("📊 Loading logistic regression results for comparison...")
 
 lr_results_query = """
 SELECT cohort_type, test_auc
-FROM proddb.fionafan.first_session_1111_cohort_prediction_results
+FROM proddb.fionafan.first_session_week_3_4_presence_prediction_results
 WHERE feature = 'intercept'
 """
 
@@ -1231,7 +1225,7 @@ except Exception as e:
 xgb_importance_spark = spark.createDataFrame(xgb_importance_df)
 
 # Save to Snowflake
-output_table_xgb = "first_session_1111_xgboost_feature_importance"
+output_table_xgb = "first_session_week_3_4_presence_xgboost_feature_importance"
 
 xgb_importance_spark.write.format("snowflake") \
     .options(**OPTIONS) \
@@ -1255,7 +1249,7 @@ print(f"\n📊 Summary:")
 print(f"   - XGBoost models trained: 3 (new, active, post_onboarding)")
 print(f"   - Features analyzed: {len(FEATURES)}")
 print(f"\n💾 Results saved to:")
-print(f"   - Logistic Regression: proddb.fionafan.first_session_1111_cohort_prediction_results")
+print(f"   - Logistic Regression: proddb.fionafan.first_session_week_3_4_presence_prediction_results")
 print(f"   - XGBoost Importance: proddb.fionafan.{output_table_xgb}")
 print(f"\n🎯 Key Findings:")
 print(f"   1. XGBoost provides tree-based feature importance (gain)")
