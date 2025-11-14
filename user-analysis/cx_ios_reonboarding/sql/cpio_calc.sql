@@ -84,7 +84,7 @@ select e.*, c.consumer_bucket, c.CAMPAIGN_NAME, c.campaign_promo_codes
 from exposure_all e
 inner join fionafan.campaign_analyzer_exposures_all c
     on e.consumer_id::varchar = c.consumer_id::varchar
-    and e.day <= convert_timezone('UTC','America/Los_Angeles', c.EXPOSURE_TIME)::date
+    and e.day >= convert_timezone('UTC','America/Los_Angeles', c.EXPOSURE_TIME)::date
 where c.CAMPAIGN_NAME not in (
 '[DO NOT BOOK] ep_consumer_enhanced_rxauto_120d_test_us_v1_t1',
 '[DO NOT BOOK] ep_consumer_enhanced_rxauto_120d_test_us_v1_t3',
