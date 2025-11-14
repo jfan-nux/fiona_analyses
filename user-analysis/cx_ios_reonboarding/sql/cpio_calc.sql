@@ -44,12 +44,17 @@ SELECT * FROM (
 create or replace temp table campaign_analyzer_exposures_all as (
 select cae.*
 from edw.consumer.campaign_analyzer_exposures cae
-where exposure_date between '2025-09-08' and '2025-11-03' 
+where exposure_date between '2025-09-08'::date-30 and '2025-11-03'::date
 and exists (
   select 1 
   from ep_names_list cnl
   where cae.campaign_name ilike '%' || cnl.ep_name || '%'
 )
+);
+
+create or replace table fionafan.campaign_analyzer_exposures_all as (
+
+  select * from campaign_analyzer_exposures_all
 );
 CREATE OR REPLACE TEMP TABLE exposure_all AS (
 
@@ -68,17 +73,31 @@ CREATE OR REPLACE TEMP TABLE exposure_all AS (
     AND ee.tag <> 'overridden'
     AND convert_timezone('UTC','America/Los_Angeles', ee.EXPOSURE_TIME)
         BETWEEN '2025-09-08' AND '2025-11-03'
+    
   GROUP BY 1,2,3
 );
 
-
+select tag, count(distinct consumer_id) total_consumers, count(distinct day) total_days from exposure_all group by all;
 create or replace temp table exposure_all_new as (
 
 select e.*, c.consumer_bucket, c.CAMPAIGN_NAME, c.campaign_promo_codes
 from exposure_all e
 inner join fionafan.campaign_analyzer_exposures_all c
     on e.consumer_id::varchar = c.consumer_id::varchar
+    and e.day <= convert_timezone('UTC','America/Los_Angeles', c.EXPOSURE_TIME)::date
+where c.CAMPAIGN_NAME not in (
+'[DO NOT BOOK] ep_consumer_enhanced_rxauto_120d_test_us_v1_t1',
+'[DO NOT BOOK] ep_consumer_enhanced_rxauto_120d_test_us_v1_t3',
+'[DO NOT BOOK] ep_consumer_enhanced_rxauto_150day_test_us_v1_t1',
+'[DO NOT BOOK] ep_consumer_enhanced_rxauto_180day_test_us_v1_t1',
+'ep_consumer_churned_latebloomers_auto_ctc_test_us'
+)
 );
+
+
+select distinct campaign_name from exposure_all_new;
+
+select campaign_name, consumer_bucket, count(1) from exposure_all_new group by all order by all;
 
 -- Create temp table with list of promo codes
 create or replace temp table promo_codes_list as (
@@ -96,19 +115,20 @@ create or replace temp table checkout_all_new as (
     SELECT e.tag
         , e.consumer_id
         , e.day AS exposure_date
+        , e.consumer_bucket as raw_consumer_bucket
+        , e.campaign_name as campaign_name
         , case when e.consumer_bucket ilike '%control%' then 'control' else 'treatment' end as consumer_bucket
         , dd.delivery_ID
         , dd.variable_profit *0.01 as VP
         , dd.active_date
         , p.delivery_id as promo_delivery_id
-        , coalesce(p.fda_other_promotions_base,0)/100.0 as total_discount_amount
+        , coalesce(p.fda_other_promotions_base,0) as total_discount_amount
     FROM exposure_all_new e
 LEFT JOIN dimension_deliveries dd
 ON e.consumer_id::varchar = dd.creator_id::varchar
     AND dd.is_filtered_core = 1
     AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) BETWEEN '2025-09-08' AND '2025-11-03'
     AND convert_timezone('UTC','America/Los_Angeles',dd.created_at) >= e.ts
-    -- AND DATEDIFF('day',e.day,convert_timezone('UTC','America/Los_Angeles',dd.created_at)) BETWEEN 1 AND 28
 LEFT JOIN proddb.public.fact_order_discounts_and_promotions_extended p
   ON p.delivery_id = dd.delivery_id
   AND promo_code in (select promo_code from promo_codes_list)
@@ -120,8 +140,14 @@ select tag, consumer_bucket, count(distinct consumer_id) total_consumers , count
 ,count(distinct case when promo_delivery_id is not null then consumer_id end) as promo_consumers_count
 ,sum(total_discount_amount) as total_discount_amount
 ,count(distinct case when promo_delivery_id is not null then vp end) as promo_order_vp
-
-from checkout_all_new group by all;
+from checkout_all_new group by all order by all;
+select tag, campaign_name,raw_consumer_bucket, count(distinct consumer_id) total_consumers , count(distinct delivery_id) total_orders
+, sum(VP) as total_VP
+,count(distinct promo_delivery_id) as promo_delivery_id_count
+,count(distinct case when promo_delivery_id is not null then consumer_id end) as promo_consumers_count
+,sum(total_discount_amount) as total_discount_amount
+,count(distinct case when promo_delivery_id is not null then vp end) as promo_order_vp
+from checkout_all_new group by all order by all;
 
 CREATE OR REPLACE TEMP TABLE VP_per_Cx_all AS
 SELECT tag

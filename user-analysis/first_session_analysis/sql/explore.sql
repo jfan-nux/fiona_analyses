@@ -652,3 +652,90 @@ where 1=1
     AND f.SESSION_TYPE not IN ('first_session')
 group by all;
 
+
+-- Conversion analysis: Users who didn't convert in first session but converted later
+-- VERSION 1: Using funnel_converted_bool from features table
+WITH first_session_users AS (
+    -- Users who didn't convert in their first session
+    SELECT DISTINCT
+        cohort_type,
+        user_id,
+        dd_device_id,
+        MAX(funnel_converted_bool) as first_session_converted
+    FROM proddb.fionafan.all_user_sessions_with_events_features_gen
+    WHERE session_type = 'first_session'
+    GROUP BY cohort_type, user_id, dd_device_id
+    HAVING MAX(funnel_converted_bool) = 0  -- Did NOT convert in first session
+),
+later_session_conversions AS (
+    -- Check if these users converted in any later session
+    SELECT DISTINCT
+        cohort_type,
+        user_id,
+        dd_device_id,
+        MAX(funnel_converted_bool) as later_session_converted
+    FROM proddb.fionafan.all_user_sessions_with_events_features_gen
+
+    WHERE session_type != 'first_session'
+    GROUP BY cohort_type, user_id, dd_device_id
+)
+SELECT 
+    f.cohort_type,
+    COUNT(DISTINCT f.user_id) as users_no_first_session_conversion,
+    COUNT(DISTINCT CASE WHEN l.later_session_converted = 1 THEN f.user_id END) as users_converted_later,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN l.later_session_converted = 1 THEN f.user_id END) / 
+          NULLIF(COUNT(DISTINCT f.user_id), 0), 2) as pct_converted_later
+FROM first_session_users f
+LEFT JOIN later_session_conversions l
+    ON f.user_id = l.user_id 
+    AND f.dd_device_id = l.dd_device_id
+    AND f.cohort_type = l.cohort_type
+GROUP BY f.cohort_type
+ORDER BY f.cohort_type;
+
+
+-- VERSION 2: Using funnel_converted_bool for first session, dimension_deliveries for later conversions
+WITH first_session_users AS (
+    -- Get users who did NOT convert in their first session (based on funnel_converted_bool)
+    SELECT DISTINCT
+        cohort_type,
+        user_id,
+        dd_device_id,
+        session_start_ts::date as session_start_date,
+        MAX(funnel_converted_bool) as first_session_converted
+    FROM proddb.fionafan.all_user_sessions_with_events_features_gen
+
+    WHERE session_type = 'first_session'
+    GROUP BY cohort_type, user_id, dd_device_id, session_start_ts::date
+    HAVING MAX(funnel_converted_bool) = 0  -- Did NOT convert in first session
+),
+later_deliveries AS (
+    -- Check if these users had any deliveries within 28 days after their first session
+    SELECT DISTINCT
+        fs.cohort_type,
+        fs.user_id,
+        fs.dd_device_id,
+        COUNT(DISTINCT d.delivery_id) as later_delivery_count
+    FROM first_session_users fs
+    LEFT JOIN proddb.public.dimension_deliveries d
+        ON fs.user_id = d.creator_id
+        AND fs.dd_device_id = d.dd_device_id
+        AND d.created_at > fs.session_start_date  -- After first session date
+        AND d.created_at <= fs.session_start_date + 28  -- Within 28 days
+    GROUP BY fs.cohort_type, fs.user_id, fs.dd_device_id
+)
+SELECT 
+    fs.cohort_type,
+    COUNT(DISTINCT fs.user_id) as users_no_first_session_conversion,
+    COUNT(DISTINCT CASE WHEN ld.later_delivery_count > 0 THEN fs.user_id END) as users_converted_later,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN ld.later_delivery_count > 0 THEN fs.user_id END) / 
+          NULLIF(COUNT(DISTINCT fs.user_id), 0), 2) as pct_converted_later_28d,
+    SUM(ld.later_delivery_count) as total_later_deliveries_28d
+FROM first_session_users fs
+LEFT JOIN later_deliveries ld
+    ON fs.user_id = ld.user_id 
+    AND fs.dd_device_id = ld.dd_device_id
+    AND fs.cohort_type = ld.cohort_type
+GROUP BY fs.cohort_type
+ORDER BY fs.cohort_type;
+

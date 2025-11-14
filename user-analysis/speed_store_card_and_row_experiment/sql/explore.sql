@@ -702,7 +702,6 @@ from proddb.fionafan.ffs_static_eta_events_w_store
 group by all
 );
 
-select distinct CUISINE_TYPE, primary_tag_name from edw.merchant.dimension_store;
 
 grant all privileges on table proddb.fionafan.ffs_static_eta_events_consumer_agg to role public;
 
