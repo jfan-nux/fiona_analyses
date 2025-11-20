@@ -6,6 +6,7 @@
 CREATE OR REPLACE TABLE proddb.fionafan.sessions_28d_post_onboarding AS
 
 
+
 WITH onboarding_cohort AS (
   SELECT DISTINCT
     cast(iguazu_timestamp as date) AS onboarding_day,
@@ -38,7 +39,7 @@ sessions_28d_post_onboarding AS (
   FROM onboarding_cohort o
   INNER JOIN iguazu.server_events_production.m_store_content_page_load s
     ON o.dd_device_id_filtered = replace(lower(CASE WHEN s.DD_DEVICE_ID like 'dx_%' then s.DD_DEVICE_ID else 'dx_'||s.DD_DEVICE_ID end), '-')
-    AND s.iguazu_timestamp >= o.exposure_time
+    AND s.iguazu_timestamp > o.exposure_time
     AND s.iguazu_timestamp <= dateadd('day', 28, o.exposure_time)
   GROUP BY all
 )
@@ -75,6 +76,7 @@ FROM proddb.fionafan.sessions_28d_post_onboarding;
 -- Features: onboarding info, session counts, first/second/third session IDs, latest session IDs by day milestone
 
 CREATE OR REPLACE TABLE proddb.fionafan.sessions_28d_enriched AS
+
 
 WITH session_sequences AS (
   SELECT 

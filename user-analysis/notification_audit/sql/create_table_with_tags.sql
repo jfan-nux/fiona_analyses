@@ -1,7 +1,5 @@
 -- Create table with all notification data plus campaign/message tagging
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_notifications_with_braze_with_tag AS
-
-
 WITH source AS (
   SELECT
     *
@@ -85,14 +83,18 @@ SELECT * FROM with_is_new;
 -- Distribution of notification tags by cohort type and days since onboarding
 -- Shows percentage of messages with each tag across the lifecycle
 create or replace table proddb.fionafan.all_user_notifications_cohort_by_day_sent_pct as (
+
+
 WITH base AS (
   SELECT
     cohort_type,
     days_since_onboarding,
     deduped_message_id,
+    consumer_id,
     opened_at,
     unsubscribed_at,
     uninstalled_at,
+    ordered_at,
     is_nv,
     is_fmx,
     is_npws,
@@ -121,13 +123,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_nv = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_nv = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_nv = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_nv = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_nv = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_nv = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -140,13 +145,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_fmx = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_fmx = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_fmx = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_fmx = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_fmx = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -159,13 +167,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_npws = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_npws = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_npws = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_npws = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_npws = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_npws = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -178,13 +189,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_challenge = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_challenge = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_challenge = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_challenge = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_challenge = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -197,13 +211,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_dashpass = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_dashpass = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_dashpass = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_dashpass = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_dashpass = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -216,13 +233,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_abandon_campaign = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -235,13 +255,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_post_order = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_post_order = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_post_order = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_post_order = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_post_order = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -254,13 +277,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_reorder = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_reorder = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_reorder = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_reorder = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_reorder = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -273,13 +299,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_gift_card_campaign = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -292,13 +321,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_recommendation = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_recommendation = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_recommendation = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_recommendation = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_recommendation = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -311,13 +343,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_doordash_offer = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -330,13 +365,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_reminder = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_reminder = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_reminder = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_reminder = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_reminder = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -349,13 +387,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_store_offer = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_store_offer = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_store_offer = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_store_offer = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_store_offer = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -368,13 +409,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_new = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_new = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_new = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_new = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_new = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_new = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -387,13 +431,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_braze = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_braze = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_braze = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_braze = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_braze = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_braze = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -406,13 +453,16 @@ metrics AS (
     COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as pct_messages_with_tag,
     COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END) as messages_with_tag,
+    COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN consumer_id END) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN is_fpn = 1 AND opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN is_fpn = 1 AND unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN is_fpn = 1 AND uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN is_fpn = 1 AND ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT CASE WHEN is_fpn = 1 THEN deduped_message_id END), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 
@@ -425,13 +475,16 @@ metrics AS (
     'overall' as pivot_by,
     1.0 as pct_messages_with_tag,
     COUNT(DISTINCT deduped_message_id) as messages_with_tag,
+    COUNT(DISTINCT consumer_id) as distinct_consumers,
     COUNT(DISTINCT deduped_message_id) as total_messages,
     COUNT(DISTINCT CASE WHEN opened_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as open_rate,
     COUNT(DISTINCT CASE WHEN unsubscribed_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
       NULLIF(COUNT(DISTINCT deduped_message_id), 0) as unsub_rate,
     COUNT(DISTINCT CASE WHEN uninstalled_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
-      NULLIF(COUNT(DISTINCT deduped_message_id), 0) as uninstall_rate
+      NULLIF(COUNT(DISTINCT deduped_message_id), 0) as uninstall_rate,
+    COUNT(DISTINCT CASE WHEN ordered_at IS NOT NULL THEN deduped_message_id END)::FLOAT / 
+      NULLIF(COUNT(DISTINCT deduped_message_id), 0) as order_rate
   FROM base
   GROUP BY cohort_type, days_since_onboarding
 )
@@ -447,6 +500,7 @@ SELECT
   open_rate,
   unsub_rate,
   uninstall_rate,
+  order_rate,
   -- Threshold flags based on benchmark cohorts (Active, New, Non-Purchaser/post_onboarding)
   CASE 
     WHEN cohort_type = 'active' AND unsub_rate > 0.0002 THEN 1
@@ -463,7 +517,7 @@ SELECT
   CASE 
     WHEN cohort_type = 'active' AND open_rate < 0.0162 THEN 1
     WHEN cohort_type = 'new' AND open_rate < 0.0227 THEN 1
-    WHEN cohort_type = 'post_onboarding' AND open_rate < 0.0057 THEN 1ß
+    WHEN cohort_type = 'post_onboarding' AND open_rate < 0.0057 THEN 1
     ELSE 0 
   END as is_low_open
 FROM metrics
