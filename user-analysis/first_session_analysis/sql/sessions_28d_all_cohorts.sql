@@ -252,12 +252,30 @@ SELECT
   AVG(sessions_day_0_7) as avg_sessions_week_1,
   AVG(sessions_day_8_14) as avg_sessions_week_2,
   AVG(sessions_day_15_21) as avg_sessions_week_3,
-  AVG(sessions_day_22_28) as avg_sessions_week_4
+  AVG(sessions_day_22_28) as avg_sessions_week_4,
+  count(case when session_day_0_7>0 then 1 end) as consumers_with_session_day_0_7,
+  count(case when session_day_8_14>0 then 1 end) as consumers_with_session_day_8_14,
+  count(case when session_day_15_21>0 then 1 end) as consumers_with_session_day_15_21,
+  count(case when session_day_22_28>0 then 1 end) as consumers_with_session_day_22_28
 FROM proddb.fionafan.all_user_sessions_enriched
 GROUP BY cohort_type
 ORDER BY cohort_type;
 
 
+
+
+SELECT 
+  COUNT(*) as total_consumers,
+  AVG(total_sessions) as avg_sessions_per_consumer,
+  AVG(total_devices) as avg_devices_per_consumer,
+  COUNT(CASE WHEN first_session_id IS NOT NULL THEN 1 END) as consumers_with_first_session,
+  COUNT(CASE WHEN second_session_id IS NOT NULL THEN 1 END) as consumers_with_second_session,
+  COUNT(CASE WHEN third_session_id IS NOT NULL THEN 1 END) as consumers_with_third_session,
+  AVG(sessions_day_0_7) as avg_sessions_week_1,
+  AVG(sessions_day_8_14) as avg_sessions_week_2,
+  AVG(sessions_day_15_21) as avg_sessions_week_3,
+  AVG(sessions_day_22_28) as avg_sessions_week_4
+FROM proddb.fionafan.sessions_28d_enriched;
 -- Step 4: Create sessions with full event data
 -- Concatenate the three existing sessions_with_events tables from each cohort
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_sessions_with_events AS

@@ -254,6 +254,7 @@ order by cohort_type, user_count desc;
 
 -- Create table for 1111 activity pattern users (active all 4 weeks)
 create or replace table proddb.fionafan.users_activity_1111 as (
+
     select 
         consumer_id,
         cohort_type,
@@ -265,6 +266,7 @@ create or replace table proddb.fionafan.users_activity_1111 as (
             case when sessions_day_22_28 > 0 then '1' else '0' end
         ) as activity_pattern
     from proddb.fionafan.all_user_sessions_enriched
+
     where concat(
             case when sessions_day_0_7 > 0 then '1' else '0' end,
             case when sessions_day_8_14 > 0 then '1' else '0' end,
@@ -272,6 +274,72 @@ create or replace table proddb.fionafan.users_activity_1111 as (
             case when sessions_day_22_28 > 0 then '1' else '0' end
         ) = '1111'
 );
+
+-- ============================================================================
+-- QUESTION: For 1111 cohort, what % never ordered in 28d after onboarding?
+-- ============================================================================
+
+with users_1111_with_orders as (
+    select 
+        u.consumer_id,
+        u.cohort_type,
+        u.onboarding_day,
+        u.activity_pattern,
+        count(distinct d.delivery_id) as orders_28d,
+        case when count(distinct d.delivery_id) = 0 then 1 else 0 end as never_ordered
+    from proddb.fionafan.users_activity_1111 u
+    left join dimension_deliveries d
+        on u.consumer_id = d.creator_id
+        and d.actual_delivery_time > u.onboarding_day+1
+        and d.actual_delivery_time < dateadd(day, 29, u.onboarding_day)
+        and d.is_filtered_core = 1
+    group by all
+)
+select 
+    cohort_type,
+    count(distinct consumer_id) as total_users_1111,
+    sum(never_ordered) as users_never_ordered,
+    round(100.0 * sum(never_ordered) / count(distinct consumer_id), 2) as pct_never_ordered,
+    round(100.0 * sum(case when orders_28d > 0 then 1 else 0 end) / count(distinct consumer_id), 2) as pct_ordered,
+    avg(orders_28d) as avg_orders_28d,
+    median(orders_28d) as median_orders_28d
+from users_1111_with_orders
+group by all
+order by cohort_type;
+
+-- ============================================================================
+-- QUESTION: 28d conversion rate across all cohort types
+-- ============================================================================
+
+with all_users_with_orders as (
+    select 
+        u.consumer_id,
+        u.cohort_type,
+        u.onboarding_day,
+        count(distinct d.delivery_id) as orders_28d,
+        case when count(distinct d.delivery_id) = 0 then 1 else 0 end as never_ordered,
+        case when count(distinct d.delivery_id) > 0 then 1 else 0 end as converted
+    from proddb.fionafan.all_user_sessions_enriched u
+    left join dimension_deliveries d
+        on u.consumer_id = d.creator_id
+        and d.actual_delivery_time > u.onboarding_day + 1
+        and d.actual_delivery_time < dateadd(day, 29, u.onboarding_day)
+        and d.is_filtered_core = 1
+    group by all
+)
+select 
+    cohort_type,
+    count(distinct consumer_id) as total_users,
+    sum(converted) as users_converted,
+    sum(never_ordered) as users_never_ordered,
+    round(100.0 * sum(converted) / count(distinct consumer_id), 2) as conversion_rate_28d,
+    round(100.0 * sum(never_ordered) / count(distinct consumer_id), 2) as pct_never_ordered,
+    avg(orders_28d) as avg_orders_28d,
+    median(orders_28d) as median_orders_28d,
+    sum(orders_28d) as total_orders_28d
+from all_users_with_orders
+group by all
+order by cohort_type;
 
 create or replace table proddb.fionafan.users_activity_1110 as (
     select 

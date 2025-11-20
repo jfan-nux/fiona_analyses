@@ -94,9 +94,9 @@ def create_toc_page(pdf, pivot_categories):
     ax.text(0.5, 0.05, 'Each section contains 5 charts:', 
             ha='center', va='bottom', fontsize=10, style='italic')
     ax.text(0.5, 0.03, 
-            '1) % Messages with Tag  2) Open Rate Ratio  3) Unsub Rate Ratio  4) Uninstall Rate Ratio  5) Order Rate Ratio',
+            '1) % Messages with Tag  2) Open Rate*  3) Unsubscribe Rate*  4) Uninstall Rate*  5) Order Rate',
             ha='center', va='bottom', fontsize=9, color='gray')
-    ax.text(0.5, 0.01, 'Ratios show New/Active and Post-Onboarding/Active (Baseline = 1.0)',
+    ax.text(0.5, 0.01, '* Asterisks indicate metrics exceeding thresholds',
             ha='center', va='bottom', fontsize=8, color='red')
     
     pdf.savefig(fig, bbox_inches='tight')
@@ -162,110 +162,6 @@ def plot_metric(df_pivot, metric_col, ylabel, title, flag_col=None, ax=None):
     return ax
 
 
-def calculate_ratio_vs_active(df_pivot, metric_col):
-    """Calculate ratio of new and post_onboarding metrics vs active cohort."""
-    df_ratio = []
-    
-    days = df_pivot['days_since_onboarding'].unique()
-    
-    for day in sorted(days):
-        day_data = df_pivot[df_pivot['days_since_onboarding'] == day]
-        
-        active_val = day_data[day_data['cohort_type'] == 'active'][metric_col].values
-        new_val = day_data[day_data['cohort_type'] == 'new'][metric_col].values
-        post_val = day_data[day_data['cohort_type'] == 'post_onboarding'][metric_col].values
-        
-        if len(active_val) > 0 and active_val[0] != 0:
-            if len(new_val) > 0:
-                df_ratio.append({
-                    'days_since_onboarding': day,
-                    'cohort_type': 'new',
-                    'ratio': new_val[0] / active_val[0]
-                })
-            if len(post_val) > 0:
-                df_ratio.append({
-                    'days_since_onboarding': day,
-                    'cohort_type': 'post_onboarding',
-                    'ratio': post_val[0] / active_val[0]
-                })
-    
-    return pd.DataFrame(df_ratio)
-
-
-def plot_ratio_metric(df_ratio, ylabel, title, ax=None):
-    """Plot ratio metric for new and post_onboarding vs active."""
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(12, 6))
-    
-    if len(df_ratio) == 0:
-        ax.text(0.5, 0.5, 'No data available', ha='center', va='center', fontsize=14)
-        ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-        return ax
-    
-    # Plot lines for new and post_onboarding
-    for cohort in ['new', 'post_onboarding']:
-        df_cohort = df_ratio[df_ratio['cohort_type'] == cohort].sort_values('days_since_onboarding')
-        
-        if len(df_cohort) > 0:
-            color = COHORT_COLORS.get(cohort, 'gray')
-            
-            ax.plot(df_cohort['days_since_onboarding'], 
-                    df_cohort['ratio'], 
-                    marker='o', 
-                    label=f"{cohort.replace('_', ' ').title()} / Active",
-                    color=color,
-                    linewidth=2,
-                    markersize=6)
-    
-    # Add reference line at y=1 (parity with active)
-    ax.axhline(y=1.0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Active Baseline')
-    
-    ax.set_xlabel('Days Since Onboarding', fontsize=12, fontweight='bold')
-    ax.set_ylabel(ylabel, fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold', pad=20)
-    ax.legend(loc='best', frameon=True, shadow=True)
-    ax.grid(True, alpha=0.3)
-    
-    # Limit x-axis to day 28
-    ax.set_xlim(0, 28)
-    
-    return ax
-
-
-def plot_pct_messages_with_tag(df_pivot, ax=None):
-    """Plot percentage of messages with tag by cohort type."""
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Plot percentage of messages with tag
-    for cohort in df_pivot['cohort_type'].unique():
-        df_cohort = df_pivot[df_pivot['cohort_type'] == cohort].sort_values('days_since_onboarding')
-        
-        color = COHORT_COLORS.get(cohort, 'gray')
-        
-        # Plot percentage of messages with tag
-        ax.plot(df_cohort['days_since_onboarding'], 
-                df_cohort['pct_messages_with_tag'], 
-                marker='o', 
-                label=cohort.replace('_', ' ').title(),
-                color=color,
-                linewidth=2,
-                markersize=6)
-    
-    ax.set_xlabel('Days Since Onboarding', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Percentage of Messages', fontsize=12, fontweight='bold')
-    ax.set_title('1. Percentage of Messages with Tag by Days Since Onboarding', 
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.legend(loc='best', frameon=True, shadow=True)
-    ax.grid(True, alpha=0.3)
-    ax.set_xlim(0, 28)
-    
-    # Format y-axis as percentage
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f'{y:.1%}'))
-    
-    return ax
-
-
 def create_pivot_section(pdf, df, pivot_by):
     """Create a 5-chart section for one pivot_by category."""
     df_pivot = df[df['pivot_by'] == pivot_by].copy()
@@ -274,41 +170,48 @@ def create_pivot_section(pdf, df, pivot_by):
         print(f"  No data for {pivot_by}, skipping...")
         return
     
-    # Create figure with 3x2 subplots
+    # Create figure with 3x2 subplots (5 charts + 1 empty)
     fig, axes = plt.subplots(3, 2, figsize=(16, 18))
     fig.suptitle(f'{pivot_by.replace("_", " ").title()} - Notification Metrics',
                  fontsize=18, fontweight='bold', y=0.997)
     
     # 1. Percentage of messages with tag
-    plot_pct_messages_with_tag(df_pivot, ax=axes[0, 0])
+    plot_metric(df_pivot, 
+                'pct_messages_with_tag',
+                'Percentage of Messages',
+                '1. Percentage of Messages with Tag by Days Since Onboarding',
+                ax=axes[0, 0])
     
-    # 2. Open rate ratio
-    df_open_ratio = calculate_ratio_vs_active(df_pivot, 'open_rate')
-    plot_ratio_metric(df_open_ratio,
-                     'Open Rate Ratio',
-                     '2. Open Rate Ratio (vs Active Baseline)',
-                     ax=axes[0, 1])
+    # 2. Open rate with low open flags
+    plot_metric(df_pivot,
+                'open_rate',
+                'Open Rate',
+                '2. Open Rate by Days Since Onboarding (* = Below Threshold)',
+                flag_col='is_low_open',
+                ax=axes[0, 1])
     
-    # 3. Unsub rate ratio
-    df_unsub_ratio = calculate_ratio_vs_active(df_pivot, 'unsub_rate')
-    plot_ratio_metric(df_unsub_ratio,
-                     'Unsub Rate Ratio',
-                     '3. Unsubscribe Rate Ratio (vs Active Baseline)',
-                     ax=axes[1, 0])
+    # 3. Unsubscribe rate with high unsub flags
+    plot_metric(df_pivot,
+                'unsub_rate',
+                'Unsubscribe Rate',
+                '3. Unsubscribe Rate by Days Since Onboarding (* = Above Threshold)',
+                flag_col='is_high_unsub',
+                ax=axes[1, 0])
     
-    # 4. Uninstall rate ratio
-    df_uninstall_ratio = calculate_ratio_vs_active(df_pivot, 'uninstall_rate')
-    plot_ratio_metric(df_uninstall_ratio,
-                     'Uninstall Rate Ratio',
-                     '4. Uninstall Rate Ratio (vs Active Baseline)',
-                     ax=axes[1, 1])
+    # 4. Uninstall rate with high uninstall flags
+    plot_metric(df_pivot,
+                'uninstall_rate',
+                'Uninstall Rate',
+                '4. Uninstall Rate by Days Since Onboarding (* = Above Threshold)',
+                flag_col='is_high_uninstall',
+                ax=axes[1, 1])
     
-    # 5. Order rate ratio
-    df_order_ratio = calculate_ratio_vs_active(df_pivot, 'order_rate')
-    plot_ratio_metric(df_order_ratio,
-                     'Order Rate Ratio',
-                     '5. Order Rate Ratio (vs Active Baseline)',
-                     ax=axes[2, 0])
+    # 5. Order rate
+    plot_metric(df_pivot,
+                'order_rate',
+                'Order Rate',
+                '5. Order Rate by Days Since Onboarding',
+                ax=axes[2, 0])
     
     # Hide the last subplot (3,2) since we only have 5 charts
     axes[2, 1].axis('off')
@@ -360,7 +263,6 @@ def generate_report(output_path='notification_report.pdf'):
 if __name__ == "__main__":
     # Generate report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, f"notification_report_{timestamp}.pdf")
+    output_path = f"notification_report_{timestamp}.pdf"
     generate_report(output_path)
 

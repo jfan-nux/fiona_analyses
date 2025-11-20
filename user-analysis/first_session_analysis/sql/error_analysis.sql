@@ -75,7 +75,9 @@ ORDER BY cohort_type, session_type, error_event_count DESC)
 select * from result where pct_of_errors_in_group >= 1;
 
 
-
+select top 100 * from    proddb.fionafan.all_user_sessions_with_events
+  WHERE event_type = 'error' and cohort_type = 'new' and session_type = 'first_session';
+  -- AND discovery_feature ILIKE 'All of your past orders and%';
 -- ============================================================================
 -- Additional: Error Event Details by Event Name
 -- ============================================================================

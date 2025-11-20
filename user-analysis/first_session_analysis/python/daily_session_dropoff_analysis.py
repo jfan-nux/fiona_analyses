@@ -1,8 +1,8 @@
 """
-Daily Session and Retention Analysis by Day of Week
+Daily Session and Revisit Analysis by Day of Week
 Creates visualizations showing:
 1. Average sessions per person over 28 days
-2. Retention rate from baseline over 28 days
+2. Revisit rate from baseline over 28 days
 
 Runs analysis for each day of week (Mon-Sun) plus overall aggregate
 """
@@ -126,8 +126,8 @@ def plot_session_dropoff(df, day_label, output_pdf):
     """
     Create a figure with 4 subplots for a given day of week:
     1. Average sessions per consumer
-    2. Retention rate from baseline
-    3. Day-over-day change in retention rate
+    2. Revisit rate from baseline
+    3. Day-over-day change in revisit rate
     4. Day-over-day change in average sessions
     
     Args:
@@ -142,7 +142,7 @@ def plot_session_dropoff(df, day_label, output_pdf):
     
     # Create figure with 4 subplots
     fig, axes = plt.subplots(4, 1, figsize=(12, 16))
-    fig.suptitle(f'Session and Retention Analysis - {day_label}', fontsize=16, fontweight='bold')
+    fig.suptitle(f'Session and Revisit Analysis - {day_label}', fontsize=16, fontweight='bold')
     
     # Subplot 1: Average Sessions Per Consumer
     ax1 = axes[0]
@@ -180,8 +180,8 @@ def plot_session_dropoff(df, day_label, output_pdf):
         )
     
     ax2.set_xlabel('Days Since Onboarding', fontsize=12)
-    ax2.set_ylabel('Retention Rate from Baseline (%)', fontsize=12)
-    ax2.set_title('Retention Rate from Baseline Over Time', fontsize=13, fontweight='bold')
+    ax2.set_ylabel('Revisit Rate from Baseline (%)', fontsize=12)
+    ax2.set_title('Revisit Rate from Baseline Over Time', fontsize=13, fontweight='bold')
     ax2.legend(loc='best', fontsize=10)
     ax2.grid(True, alpha=0.3)
     ax2.set_xlim(1, 28)
@@ -206,8 +206,8 @@ def plot_session_dropoff(df, day_label, output_pdf):
         )
     
     ax3.set_xlabel('Days Since Onboarding', fontsize=12)
-    ax3.set_ylabel('Daily Change in Retention (%)', fontsize=12)
-    ax3.set_title('Day-over-Day Change in Retention Rate', fontsize=13, fontweight='bold')
+    ax3.set_ylabel('Daily Change in Revisit (%)', fontsize=12)
+    ax3.set_title('Day-over-Day Change in Revisit Rate', fontsize=13, fontweight='bold')
     ax3.legend(loc='best', fontsize=10)
     ax3.grid(True, alpha=0.3)
     ax3.set_xlim(1, 28)
@@ -249,7 +249,7 @@ def main():
     """
     
     print("=" * 80)
-    print("Daily Session and Retention Analysis by Day of Week")
+    print("Daily Session and Revisit Analysis by Day of Week")
     print("=" * 80)
     
     # Create output directory
@@ -301,15 +301,15 @@ def main():
             # Add metadata page
             fig = plt.figure(figsize=(12, 8))
             fig.text(0.5, 0.5, 
-                    f'Session and Retention Analysis\n\n'
+                    f'Session and Revisit Analysis\n\n'
                     f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n'
                     f'Analysis includes:\n'
                     f'  - Overall (all days combined)\n'
                     f'  - Each day of week (Sunday - Saturday)\n\n'
                     f'Metrics:\n'
                     f'  1. Average Sessions Per Consumer\n'
-                    f'  2. Retention Rate from Baseline (%)\n'
-                    f'  3. Day-over-Day Change in Retention (%)\n'
+                    f'  2. Revisit Rate from Baseline (%)\n'
+                    f'  3. Day-over-Day Change in Revisit (%)\n'
                     f'  4. Day-over-Day Change in Sessions\n\n'
                     f'Days Since Onboarding: 1-28 days\n'
                     f'Cohorts: Active, New, Post Onboarding',

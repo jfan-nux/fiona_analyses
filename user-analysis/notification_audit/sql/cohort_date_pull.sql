@@ -1,6 +1,5 @@
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_notifications_base AS
 
-
 SELECT
   n.*,
   c.cohort_type,
@@ -107,7 +106,6 @@ ORDER BY cohort_type;
 --     select * from proddb.fionafan.all_user_notifications_with_braze 
 -- );
 CREATE OR REPLACE TABLE proddb.fionafan.all_user_notifications_with_braze AS
-
 
 WITH canvas_tags AS (
   WITH base AS (

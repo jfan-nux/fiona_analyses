@@ -18,7 +18,7 @@ WITH exposure AS (
         ,COALESCE(umb.resurrection_cohort, 'unmatched') AS resurrection_cohorts
     FROM proddb.fionafan.cx_ios_reonboarding_experiment_exposures e
     -- inner join dimension_consumer dc on e.consumer_id::varchar = dc.user_id::varchar
-    inner JOIN proddb.public.cx_resurrection_cohorts umb
+    left JOIN proddb.public.cx_resurrection_cohorts umb
         ON e.consumer_id::varchar = umb.consumer_id::varchar
     WHERE e.day BETWEEN $start_date AND $end_date
 )
